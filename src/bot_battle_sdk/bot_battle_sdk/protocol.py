@@ -3,25 +3,28 @@ from pydantic import BaseModel, UUID4
 from .sides import Side
 from .state import State
 
-
-class ClientData(BaseModel):
-    token: str
-    starting_port: int
-    max_sockets: int
+from enum import Enum
 
 
-class StartingMessage(BaseModel):
-    game_id: UUID4
-    side: Side
+class GameResultType(Enum):
+    ABORTED = 0
+    VICTORY = 1
+    TIE = 2
 
 
-class StateMessage(BaseModel):
+class GameResult(BaseModel):
+    result_type: GameResultType
+    winner: Side | None
+
+
+class GameStateResponse(BaseModel):
     state: State
+    result: GameResult = None
 
 
-class MoveMessage(BaseModel):
-    move: int
+class WaitResponse(BaseModel):
+    seconds: int
 
 
-class ResultMessage(BaseModel):
-    winner: Side
+class GameListResponse(BaseModel):
+    game_ids: list[UUID4]

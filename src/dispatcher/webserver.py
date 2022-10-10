@@ -1,9 +1,14 @@
-from bot_battle_sdk.protocol import ClientData
+from bot_battle_sdk.protocol import (
+    GameListResponse,
+    GameResult,
+    GameResultType,
+    GameStateResponse,
+    WaitResponse,
+)
 from fastapi import BackgroundTasks, FastAPI, Request
+from pydantic import UUID4
 
 from .database import db
-from .models import BotModel
-from .runner import Runner
 
 app = FastAPI()
 
@@ -12,43 +17,38 @@ from logging import basicConfig, info
 basicConfig(level="DEBUG")
 
 
-async def register_in_db(bot: BotModel, client_data: ClientData, request: Request):
-    # set status to alive
-    bot.alive = True
-
-    # set ports
-    bot.starting_port = client_data.starting_port
-    bot.max_sockets = client_data.max_sockets
-
-    # set host
-    bot.host = request.client.host
-
-    info(f"Bot requesting games: {bot}")
-
-    db().commit()
+@app.get("games/new/")
+def new_game() -> GameStateResponse | WaitResponse:
+    # check token
+    # check if game limit exhausted
+    # register new game request
+    # find a match
+    # create a game
+    # return game_id
+    ...
 
 
-runner_running = False
+@app.get("games/{game_id}/state/last")
+def state(game_id: UUID4) -> GameStateResponse:
+    # check token
+    # find the game
+    # return game state
+    ...
 
 
-async def start_runner():
-    global runner_running
-    if not runner_running:
-        runner_running = True
-        await Runner().run()
-        runner_running = False
+@app.post("games/{game_id}/move/?col={move}")
+def move(game_id: UUID4, move: int) -> GameStateResponse:
+    # check token
+    # find the game
+    # check game state
+    # make move
+    # wait for the opponent to make a move
+    # return game state
+    ...
 
 
-@app.post("/")
-async def client_alive(
-    client_data: ClientData, request: Request, backgound_tasks: BackgroundTasks
-):
-    # check if token exists
-    bot: BotModel = (
-        db().query(BotModel).filter(BotModel.token == client_data.token).one()
-    )
-
-    backgound_tasks.add_task(register_in_db, bot, client_data, request)
-    backgound_tasks.add_task(start_runner)
-
-    return {"bot_id": bot.id}
+@app.get("games/list/")
+def games_list() -> GameListResponse:
+    # check token
+    # return game list
+    ...
