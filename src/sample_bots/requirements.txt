@@ -1,0 +1,4 @@
+requests
+-r ../dispatcher/requirements.txt
+beartype
+uvicorn

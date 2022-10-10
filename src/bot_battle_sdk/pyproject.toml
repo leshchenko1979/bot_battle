@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools"]
+
+[project]
+name="bot_battle_sdk"
+version="1.0"
+description="Bot Battle SDK"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
