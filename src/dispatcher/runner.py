@@ -1,6 +1,7 @@
 import asyncio
 import random
 from logging import info
+import time
 from uuid import uuid4
 
 import sqlalchemy
@@ -56,15 +57,22 @@ class Game:
 
 
 class Runner:
-    def __init__(self, max_games=10, cycle_time=5, games_to_play: int = None):
+    def __init__(
+        self,
+        max_games=10,
+        cycle_time=5,
+        games_to_play: int = None,
+        no_bots_timeout: int = 60,
+    ):
         self.max_games = max_games
         self.cycle_time = cycle_time
-
         self.games_to_play = games_to_play
+        self.no_bots_timeout = no_bots_timeout
 
         self.games = asyncio.Queue(max_games)
         self.alive_bots: dict[int, Bot] = {}
         self.health_check_queue = asyncio.Queue()
+        self.no_bots_since = None
 
     async def run(self):
         info("Runner started")
@@ -93,7 +101,18 @@ class Runner:
             if len(self.alive_bots) < 2:
                 info("No bots to match, sleeping")
                 await asyncio.sleep(self.cycle_time)
+
+                if self.no_bots_since is None:
+                    self.no_bots_since = time.monotonic()
+                else:
+                    no_bots_time = time.monotonic() - self.no_bots_since
+                    if no_bots_time > self.no_bots_timeout:
+                        info(f"No bots for {int(no_bots_time)} seconds, quitting")
+                        self.games_to_play = 0
+
                 continue
+
+            self.no_bots_since = None
 
             await asyncio.wait(
                 [
