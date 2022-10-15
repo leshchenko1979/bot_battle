@@ -1,127 +1,51 @@
-import asyncio
-
+import inspect
 import httpx
-import websockets
 
-from .protocol import (
-    MoveMessage,
-    ResultMessage,
-    StartingMessage,
-    StateMessage,
-    ClientData,
-)
+from logging import info, debug
 
-MAX_SOCKETS = 10
-STARTING_PORT = 8100
-
-
-class Client:
+class BotClient:
     def __init__(
         self,
         token: str,
-        cls: type,
-        dispatcher_url="http://localhost:8200",
-        starting_port=STARTING_PORT,
-        max_sockets=MAX_SOCKETS,
+        func,
+        dispatcher_url
     ):
+        info(f"Initializing BotClient with token: {token}")
+
         self.bot_id = None
         self.bot_token = token
-        self.bot_cls = cls
+        self.func = func
 
         self.dispatcher_url = dispatcher_url
-        self.starting_port = starting_port
-        self.max_sockets = max_sockets
-        self.players = {}  # game_id: player
 
-        self.sockets = [None] * (max_sockets + 1)
+        self.set_up_http_client()
 
     def __repr__(self):
-        return f"<Client(id={self.bot_id})>"
+        return f"<BotClient(id={self.bot_id})>"
 
-    async def run(self):
+    def set_up_http_client(self):
+        headers = {"Authorization": f"Bearer {self.token}"}
+        self.http_client = httpx.Client(
+            base_url=self.dispatcher_url, header=headers
+        )
+
+    def get(self, path, **kwargs):
+        return self.http_client.get(path, **kwargs)
+
+    def post(self, path, **kwargs):
+        return self.http_client.post(path, **kwargs)
+
+    def run(self):
+        info("Running")
         try:
-            tasks = [
-                self.set_up_socket(i, self.game_runner) for i in range(self.max_sockets)
-            ]
-            tasks += [self.set_up_socket(self.max_sockets, self.health_checker)]
-            await asyncio.wait(tasks)
-            print(f"{self.max_sockets + 1} sockets set up")
-
-            await self.keep_connection()
-
+            self.send_code()
+            self.monitor_logs()
         except KeyboardInterrupt:
-            print("Interrupted by user")
+            info("Interrupted by user")
 
-        for socket in self.sockets:
-            socket.close()
+    def send_code(self):
+        info ("Sending code to the server")
+        self.post("/update_code", {"code": inspect.getsource(self.func.make_move)})
 
-    async def keep_connection(self):
-        while True:
-            print(f"Connecting to {self.dispatcher_url}")
-
-            # register self with the dispatcher
-            async with httpx.AsyncClient() as client:
-                result = await client.post(
-                    self.dispatcher_url,
-                    data=ClientData(
-                        token=self.bot_token,
-                        starting_port=self.starting_port,
-                        max_sockets=self.max_sockets,
-                    ).json(),
-                )
-
-            print("Connection result:", result)
-
-            if result.status_code == 200:
-                json = result.json()
-                self.bot_id = json["bot_id"]
-
-            await asyncio.sleep(10)
-
-    async def set_up_socket(self, i: int, handler):
-        port = self.starting_port + i
-        self.sockets[i] = await websockets.serve(handler, "localhost", port)
-
-    async def game_runner(self, websocket):
-        game_id = None
-        try:
-            # start
-            starting_msg = StartingMessage.parse_raw(await websocket.recv())
-            game_id, side = starting_msg.game_id, starting_msg.side
-
-            self.players[game_id] = self.bot_cls(side)
-            print(f"Started a game {game_id}, {side}")
-
-            # make moves
-            while True:
-                msg = await websocket.recv()
-                try:
-                    state_msg = StateMessage.parse_raw(msg)
-                except Exception:
-                    break
-
-                # print(f"Received state {state_msg}")
-
-                move = self.players[game_id].make_move(state_msg.state)
-                move_msg = MoveMessage(move=move).json()
-
-                # print(f"Sending move: {move}")
-                await websocket.send(move_msg)
-
-            # print results
-            result = ResultMessage.parse_raw(msg)
-            print(f"{game_id}: {result}")
-
-        except (
-            websockets.exceptions.WebSocketException,
-            asyncio.exceptions.IncompleteReadError,
-        ) as e:
-            print(f"Websocket error: {e}")
-
-        finally:
-            if game_id and game_id in self.players:
-                del self.players[game_id]
-
-    @staticmethod
-    async def health_checker(websocket):
-        pass
+    def monitor_logs(self):
+        ...
