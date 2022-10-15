@@ -1,18 +1,19 @@
-import pytest
-from fastapi.testclient import TestClient
-from ..dispatcher.webserver import app
-from bot_battle_sdk.protocol import ClientData
+from ..dispatcher.models import BotModel, StateModel, ParticipantModel
+from ..dispatcher.database import db
+
+def get(client, bot, url, **params):
+    headers = {"Authorization": f"Bearer {bot.token}"}
+    return client.get(url, headers=headers, **params)
+
+def test_game_creation(client, clean_up):
+    bot_1 = db().query(BotModel).filter(BotModel.id == 1).one()
+    bot_2 = db().query(BotModel).filter(BotModel.id == 2).one()
+
+    get(client, bot_1, "/games/new_game")
+    get(client, bot_2, "/games/new_game")
 
 
-@pytest.fixture
-def client():
-    yield TestClient(app)
+    game_id_1 = get(client, bot_1, "/games/new_game").json()["response"]["game_id"]
+    game_id_2 = get(client, bot_2, "/games/new_game").json()["response"]["game_id"]
 
-
-def test_properties(client):
-    body = ClientData(token="", starting_port=0, max_sockets=0).json()
-    # body = {"client_data": ClientData(token="", starting_port=0, max_sockets=0).json()}
-    print(body)
-    result = client.post("/", data=body)
-    print(result.text)
-    result.raise_for_status()
+    assert game_id_1 == game_id_2

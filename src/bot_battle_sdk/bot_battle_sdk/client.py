@@ -1,11 +1,15 @@
 import asyncio
-from pathlib import Path
 
 import httpx
 
 from .protocol import (
-    NewGameResponse, NewGameResponseType, GameStateResponse
+    NewGameResponse,
+    NewGameResponseWait,
+    GameStateResponse,
+    GameResultType,
 )
+
+from .players import PlayerAbstract
 
 from logging import info, debug
 
@@ -15,17 +19,13 @@ STARTING_PORT = 8100
 
 class BotClient:
     def __init__(
-        self,
-        token: str,
-        cls: type,
-        dispatcher_url,
-        max_games: int = 10
+        self, token: str, cls: PlayerAbstract, dispatcher_url, max_games: int = 10
     ):
         self.bot_id = None
         self.bot_token = token
         self.bot_cls = cls
 
-        self.dispatcher_url = Path(dispatcher_url)
+        self.dispatcher_url = dispatcher_url
         self.players = {}  # game_id: player
 
         self.semaphore = asyncio.Semaphore(max_games)
@@ -37,9 +37,9 @@ class BotClient:
         return f"<BotClient(id={self.bot_id})>"
 
     def set_up_http_client(self):
-        headers = {"Authorization": f"Bearer {self.token}"}
+        headers = {"Authorization": f"Bearer {self.bot_token}"}
         self.http_client = httpx.AsyncClient(
-            base_url=self.dispatcher_url, header=headers
+            base_url=self.dispatcher_url, headers=headers, timeout=60
         )
 
     async def get(self, path, **kwargs):
@@ -54,39 +54,50 @@ class BotClient:
     async def request_games(self):
         info("Requesting new games")
         while True:
-            response = NewGameResponse(await self.get("/new_game").json())
+            response = NewGameResponse(
+                **(await self.get("/games/new/")).json()
+            ).response
 
-            if response.response_type == NewGameResponseType.WAIT:
+            if isinstance(response, NewGameResponseWait):
                 info(f"Asked to wait for {response.wait_for} seconds")
                 await asyncio.sleep(response.wait_for)
                 continue
 
             await self.semaphore.acquire()
+            print(response)
             info(f"Starting new game {response.game_id}")
             self.runners.add(asyncio.create_task(self.game_runner(response.game_id)))
 
     async def run_games(self):
         info("Running games")
         while True:
-            if not(self.runners):
-                asyncio.sleep(1)
+            if not (self.runners):
+                await asyncio.sleep(1)
                 continue
 
-            done, self.runners = asyncio.wait(self.runners, return_when=asyncio.FIRST_COMPLETED)
+            done, self.runners = await asyncio.wait(
+                self.runners, return_when=asyncio.FIRST_COMPLETED
+            )
 
             for _ in range(len(done)):
                 self.semaphore.release()
 
     async def game_runner(self, game_id):
-        player = self.bot_cls()
-
         # request initial state
-        response = GameStateResponse(await self.get("/games/{game_id}/latest").json())
+        response = GameStateResponse(
+            **(await self.get(f"/games/{game_id}/wait_turn")).json()
+        )
 
-        while not response.result:
+        player = self.bot_cls(response.your_side)
+
+        while response.result == GameResultType.RUNNING:
             # make a move
-            move = player.make_move(response.state)
-            response = GameStateResponse(await self.post(f"/games/{game_id}/move?move={move}").json())
+            col = player.make_move(response.state)
+
+            # and wait fot the opponent to move
+            response = GameStateResponse(
+                **(await self.post(f"/games/{game_id}/move?col={col}")).json()
+            )
 
         # show results
         info(f"Game {game_id} finished")

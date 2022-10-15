@@ -3,36 +3,33 @@ from pydantic import BaseModel, UUID4
 from .sides import Side
 from .state import State
 
-from enum import Enum
+from typing import Literal
 
 
-class GameResultType(Enum):
-    ABORTED = "aborted"
-    VICTORY = "victory"
-    TIE = "tie"
-
-
-class GameResult(BaseModel):
-    result_type: GameResultType
-    winner: Side | None
-
+GameResultType = Literal["running", "aborted", "victory", "tie"]
 
 class GameStateResponse(BaseModel):
     state: State
-    your_side: Side = None
-    result: GameResult = None
+    your_side: Side
+    result: GameResultType
 
+class GameStateResponseVictory(GameStateResponse):
+    result: Literal["victory"]
+    winner: Side
 
-class NewGameResponseType(Enum):
-    NEW_GAME_CREATED = "new_game_created"
-    WAIT = "wait"
+class NewGameResponseType(BaseModel):
+    response_type: Literal["created", "wait"]
 
+class NewGameResponseCreated(NewGameResponseType):
+    response_type: Literal["created"]
+    game_id: UUID4
+
+class NewGameResponseWait(NewGameResponseType):
+    response_type: Literal["wait"]
+    wait_for: int
 
 class NewGameResponse(BaseModel):
-    response_type: NewGameResponseType
-    game_id: UUID4 = None
-    wait_for: int = None
-
+    response: NewGameResponseWait | NewGameResponseCreated
 
 class GameListResponse(BaseModel):
     game_ids: list[UUID4]
