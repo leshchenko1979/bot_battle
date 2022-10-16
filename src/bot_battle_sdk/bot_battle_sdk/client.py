@@ -3,31 +3,24 @@ import httpx
 
 from logging import info, debug
 
+
 class BotClient:
-    def __init__(
-        self,
-        token: str,
-        func,
-        dispatcher_url
-    ):
+    def __init__(self, token: str, bot_cls, dispatcher_url):
         info(f"Initializing BotClient with token: {token}")
 
-        self.bot_id = None
         self.bot_token = token
-        self.func = func
+        self.bot_cls = bot_cls
 
         self.dispatcher_url = dispatcher_url
 
         self.set_up_http_client()
 
-    def __repr__(self):
-        return f"<BotClient(id={self.bot_id})>"
+        info("Initialization complete")
 
     def set_up_http_client(self):
-        headers = {"Authorization": f"Bearer {self.token}"}
-        self.http_client = httpx.Client(
-            base_url=self.dispatcher_url, header=headers
-        )
+        info("Setting up HTTP client")
+        headers = {"Authorization": f"Bearer {self.bot_token}"}
+        self.http_client = httpx.Client(base_url=self.dispatcher_url, headers=headers)
 
     def get(self, path, **kwargs):
         return self.http_client.get(path, **kwargs)
@@ -44,8 +37,14 @@ class BotClient:
             info("Interrupted by user")
 
     def send_code(self):
-        info ("Sending code to the server")
-        self.post("/update_code", {"code": inspect.getsource(self.func.make_move)})
+        info("Sending code to the server")
+        self.post(
+            "/update_code",
+            json={
+                "source": inspect.getsource(self.bot_cls),
+                "cls_name": self.bot_cls.__name__,
+            },
+        )
 
     def monitor_logs(self):
         ...

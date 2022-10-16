@@ -1,27 +1,22 @@
-from pydantic import BaseModel, UUID4
+from pydantic import BaseModel, UUID4, HttpUrl
 
 from .sides import Side
 from .state import State
 
 
-class ClientData(BaseModel):
-    token: str
-    starting_port: int
-    max_sockets: int
+class Code(BaseModel):
+    source: str
+    cls_name: str
 
 
-class StartingMessage(BaseModel):
+class RunGameTask(BaseModel):
     game_id: UUID4
-    side: Side
+    callback: HttpUrl
+    blue_code: Code
+    red_code: Code
 
 
-class StateMessage(BaseModel):
-    state: State
-
-
-class MoveMessage(BaseModel):
-    move: int
-
-
-class ResultMessage(BaseModel):
-    winner: Side
+class GameLog(BaseModel):
+    game_id: UUID4
+    states: list[State]
+    winner: Side | None
