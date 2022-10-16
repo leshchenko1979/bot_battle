@@ -1,7 +1,12 @@
-import inspect
+from logging import getLogger
+
 import httpx
 
-from logging import info, debug
+from .players import make_code
+
+logger = getLogger(__name__)
+info = logger.info
+debug = logger.debug
 
 
 class BotClient:
@@ -40,10 +45,7 @@ class BotClient:
         info("Sending code to the server")
         self.post(
             "/update_code",
-            json={
-                "source": inspect.getsource(self.bot_cls),
-                "cls_name": self.bot_cls.__name__,
-            },
+            json=make_code(self.bot_cls).dict(),
         )
 
     def monitor_logs(self):

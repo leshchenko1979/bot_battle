@@ -1,7 +1,5 @@
 import pytest
-
-from bot_battle_sdk.sides import Side
-from bot_battle_sdk.state import State
+from botbattle import Side, State
 
 
 def test_drop_token():

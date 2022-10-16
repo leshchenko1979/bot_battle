@@ -1,33 +1,25 @@
+import json
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Column, Integer, String, JSON, DateTime, TypeDecorator
+
+from botbattle import Side, State
+from sqlalchemy import JSON, Column, DateTime, Integer, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID
 
 from .database import Base
 
-from bot_battle_sdk.sides import Side
-from bot_battle_sdk.state import State
 
-import json
-
-
-class JSONState(TypeDecorator):
+class JSONBoard(TypeDecorator):
     impl = JSON
 
     @staticmethod
-    def process_bind_param(value: State, dialect):
-        processed = {
-            "board": deep_process_list(value.board, Side, lambda x: x.value),
-            "next_side": value.next_side.value,
-        }
+    def process_bind_param(value: list[list[Side]], dialect):
+        processed = deep_process_list(value, Side, lambda x: x.value)
         return json.dumps(processed)
 
     @staticmethod
     def process_result_value(value, dialect):
         dictified = json.loads(value)
-        return State(
-            board=deep_process_list(dictified["board"], int, lambda x: Side(x)),
-            next_side=Side(dictified["next_side"]),
-        )
+        return deep_process_list(dictified["board"], int, lambda x: Side(x))
 
 
 def deep_process_list(what, cls, func):
@@ -50,14 +42,16 @@ class Bot(Base):
     def __repr__(self):
         return f"<BotModel(id={self.id})>"
 
+
 class CodeVersion(Base):
     __tablename__ = "code_versions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     bot_id = Column(Integer)
     source = Column(String)
     cls_name = Column(String)
+
 
 class Game(Base):
     __tablename__ = "games"
@@ -76,7 +70,7 @@ class StateModel(Base):
     id = Column(Integer, primary_key=True)
     game_id = Column(UUID(as_uuid=True))
     serial_no_within_game = Column(Integer)
-    board = Column(JSONState)
+    board = Column(JSONBoard)
     next_side = Column(Integer)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 

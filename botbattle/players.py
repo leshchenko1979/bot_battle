@@ -3,7 +3,7 @@ from abc import ABCMeta, abstractmethod
 from pathlib import Path
 
 from .protocol import Code
-from .sides import Side
+from .side import Side
 from .state import State
 
 
@@ -24,3 +24,8 @@ def make_code(cls: PlayerAbstract) -> Code:
     return Code(
         source=Path(inspect.getsourcefile(cls)).read_text(), cls_name=cls.__name__
     )
+
+
+def init_bot(code: Code, side: Side) -> PlayerAbstract:
+    exec(code.source, globals())
+    return globals()[code.cls_name](side)

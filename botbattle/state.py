@@ -2,7 +2,7 @@ import itertools
 
 from pydantic import BaseModel
 
-from .sides import Side
+from .side import Side
 
 
 class ColumnFullException(Exception):

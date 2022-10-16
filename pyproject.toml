@@ -1,11 +1,15 @@
 [build-system]
 requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name="bot_battle_sdk"
+name="botbattle"
 version="1.0"
 description="Bot Battle SDK"
 dynamic = ["dependencies"]
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages]
+find.include = ["botbattle"]

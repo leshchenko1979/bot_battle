@@ -1,5 +1,4 @@
-from bot_battle_sdk.players import PlayerAbstract
-from bot_battle_sdk.state import State
+from botbattle import PlayerAbstract, State
 import random
 
 

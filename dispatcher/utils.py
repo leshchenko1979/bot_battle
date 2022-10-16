@@ -26,3 +26,13 @@ class LeakyBucket:
         # register drop and yield
         self.drips.append(time.monotonic())
         yield
+
+_already_run = set()
+
+
+async def run_once(func, *args, **kwargs):
+    global _already_run
+    if func in _already_run:
+        return
+    _already_run.add(func)
+    return await func(*args, **kwargs)

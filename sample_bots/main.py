@@ -1,16 +1,13 @@
 import asyncio
-
 from concurrent.futures import ThreadPoolExecutor
+from logging import basicConfig
 
-from bot_battle_sdk.client import BotClient
 import uvicorn
-from src.dispatcher import runner, webserver
+from botbattle import BotClient
+from dispatcher import runner, webserver
+from dispatcher.database import db
 
 import random_player
-
-from src.dispatcher.database import db
-
-from logging import basicConfig
 
 basicConfig(level="DEBUG")
 

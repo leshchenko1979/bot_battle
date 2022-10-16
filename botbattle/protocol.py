@@ -1,6 +1,6 @@
-from pydantic import BaseModel, UUID4, HttpUrl
+from pydantic import BaseModel, UUID4, AnyHttpUrl
 
-from .sides import Side
+from .side import Side
 from .state import State
 
 
@@ -11,7 +11,7 @@ class Code(BaseModel):
 
 class RunGameTask(BaseModel):
     game_id: UUID4
-    callback: HttpUrl
+    callback: AnyHttpUrl
     blue_code: Code
     red_code: Code
 

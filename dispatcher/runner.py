@@ -1,18 +1,18 @@
-from logging import info
+from logging import getLogger
 
 import httpx
-from bot_battle_sdk.players import PlayerAbstract
-from bot_battle_sdk.sides import Side
-from bot_battle_sdk.state import State
+from botbattle import GameLog, PlayerAbstract, RunGameTask, Side, State, init_bot
 from fastapi import BackgroundTasks, FastAPI
-
-from bot_battle_sdk.protocol import Code, GameLog, RunGameTask
 
 app = FastAPI()
 
+logger = getLogger(__name__)
+info = logger.info
+debug = logger.debug
+
 
 @app.post("/")
-async def accept_task(self, task: RunGameTask, background: BackgroundTasks):
+async def accept_task(task: RunGameTask, background: BackgroundTasks):
     info("Starting game")
     background.add_task(run_game, task)
 
@@ -24,15 +24,17 @@ async def run_game(task: RunGameTask):
 
     states, winners = get_game_results(task)
 
-    # post results
-    httpx.post(
-        task.callback,
-        json=GameLog(
-            game_id=task.game_id,
-            states=states,
-            winner=winners[0] if len(winners) == 1 else None,
-        ),
+    log = GameLog(
+        game_id=task.game_id,
+        states=states,
+        winner=winners[0] if len(winners) == 1 else None,
     )
+    # post results
+    async with httpx.AsyncClient(timeout=10) as client:
+        await client.post(
+            task.callback,
+            content=log.json().encode("utf-8"),
+        )
 
 
 def get_game_results(task):
@@ -61,8 +63,3 @@ def get_game_results(task):
         cur_bot = blue if cur_bot == red else red
 
     return states, winners
-
-
-def init_bot(code: Code, side: Side) -> PlayerAbstract:
-    exec(code.source, globals())
-    return globals()[code.cls_name](side)
