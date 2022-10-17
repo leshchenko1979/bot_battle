@@ -1,12 +1,14 @@
 services:
   dispatcher:
-    build: ./dispatcher
+    build:
+      dockerfile: dispatcher.Dockerfile
     env_file:
       - ".env"
     ports:
      - "8200:8200"
   runner:
-    build: ./runner
+    build:
+      dockerfile: runner.Dockerfile
     env_file:
       - ".env"
     expose:
