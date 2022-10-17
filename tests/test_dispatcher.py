@@ -1,9 +1,9 @@
 from uuid import uuid4
 
 import pytest
-from dispatcher.database import db
-from dispatcher.models import Bot, Game
-from dispatcher.webserver import app, prep_run_game_task, run_games, schedule_games
+from common.database import db
+from common.models import Bot, Game
+from dispatcher.dispatcher import app, prep_run_game_task, run_games, schedule_games
 from fastapi.testclient import TestClient
 
 

@@ -3,7 +3,7 @@
 Sample code:
 
 ```python
-from bot_battle_sdk import Client, PlayerAbstract, State
+from botbattle import BotClient, PlayerAbstract, State
 
 TOKEN = "XXX"
 
@@ -12,7 +12,7 @@ class MyPlayer(PlayerAbstract):
         """Your code here"""
         ...
 
-asyncio.run(Client(TOKEN, MyPlayer).run())
+BotClient(TOKEN, MyPlayer).run()
 ```
 
 Sample output:

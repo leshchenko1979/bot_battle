@@ -2,7 +2,7 @@ from time import monotonic
 
 import pytest
 
-from dispatcher.utils import LeakyBucket
+from common.utils import LeakyBucket
 
 
 @pytest.mark.parametrize(

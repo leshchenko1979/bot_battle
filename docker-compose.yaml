@@ -1,0 +1,13 @@
+services:
+  dispatcher:
+    build: ./dispatcher
+    env_file:
+      - ".env"
+    ports:
+     - "8200:8200"
+  runner:
+    build: ./runner
+    env_file:
+      - ".env"
+    expose:
+      - "8201"

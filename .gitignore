@@ -5,3 +5,4 @@ __pycache__/
 /Scripts/
 **egg-info/
 pyvenv.cfg
+.env

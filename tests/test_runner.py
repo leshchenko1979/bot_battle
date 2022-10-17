@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from botbattle import make_code, RunGameTask
 
-from dispatcher.runner import get_game_results, accept_task
+from runner.runner import get_game_results, accept_task
 from sample_bots.random_player import RandomPlayer
 
 from fastapi import BackgroundTasks
