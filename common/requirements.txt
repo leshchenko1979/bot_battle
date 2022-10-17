@@ -1,7 +1,7 @@
 fastapi
 sqlalchemy
 psycopg2-binary
-botbattle
 uvicorn
 sqlparse
 icontract
+reretry

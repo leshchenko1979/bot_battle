@@ -1,6 +1,6 @@
 import asyncio
 
-import bot_battle_sdk.client
+import botbattle
 
 import random_player
 
@@ -19,7 +19,7 @@ def start_clients(no_bots=1):
     ]
 
     bot_clients = [
-        bot_battle_sdk.client.BotClient(
+        botbattle.client.BotClient(
             token, random_player.RandomPlayer, dispatcher_url=DISPATCHER_URI
         )
         for token in tokens[:no_bots]
@@ -32,4 +32,4 @@ def start_clients(no_bots=1):
 
     asyncio.run(run_bots(bot_clients))
 
-start_clients(2)
+start_clients(1)

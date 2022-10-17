@@ -1,20 +1,28 @@
-from logging import getLogger
+from asyncio import Queue
+from logging import basicConfig, getLogger
 
 import httpx
+import reretry
 from botbattle import GameLog, PlayerAbstract, RunGameTask, Side, State, init_bot
+from common.utils import run_once
 from fastapi import BackgroundTasks, FastAPI
 
 app = FastAPI()
 
+basicConfig(level="DEBUG")
+
 logger = getLogger(__name__)
 info = logger.info
 debug = logger.debug
+
+result_queue = Queue()
 
 
 @app.post("/")
 async def accept_task(task: RunGameTask, background: BackgroundTasks):
     info("Starting game")
     background.add_task(run_game, task)
+    background.add_task(run_once, process_result_queue)
 
 
 async def run_game(task: RunGameTask):
@@ -29,15 +37,11 @@ async def run_game(task: RunGameTask):
         states=states,
         winner=winners[0] if len(winners) == 1 else None,
     )
-    # post results
-    async with httpx.AsyncClient(timeout=10) as client:
-        await client.post(
-            task.callback,
-            content=log.json().encode("utf-8"),
-        )
+
+    await result_queue.put((task.callback, log))
 
 
-def get_game_results(task):
+def get_game_results(task: RunGameTask):
     # load code
     blue, red = [
         init_bot(code, side)
@@ -63,3 +67,16 @@ def get_game_results(task):
         cur_bot = blue if cur_bot == red else red
 
     return states, winners
+
+
+async def process_result_queue():
+    async with httpx.AsyncClient(timeout=10) as client:
+        while True:
+            callback, log = await result_queue.get()
+            info(f"Posting result for game {log.game_id}")
+            await try_post_results(client, callback, log)
+
+
+@reretry.retry(ConnectionRefusedError, delay=3, jitter=1, backoff=1.5)
+async def try_post_results(client: httpx.AsyncClient, callback: str, log: GameLog):
+    await client.post(callback, content=log.json().encode("utf-8"))

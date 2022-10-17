@@ -1,7 +1,8 @@
 import itertools as it
+import os
 import random
 from datetime import datetime, timedelta, timezone
-from logging import getLogger
+from logging import basicConfig, getLogger
 from uuid import uuid4
 
 import httpx
@@ -17,6 +18,8 @@ from sqlalchemy.sql import func
 
 app = FastAPI()
 
+basicConfig(level="DEBUG")
+
 logger = getLogger(__name__)
 info = logger.info
 debug = logger.debug
@@ -26,16 +29,42 @@ warning = logger.warning
 GAMES_IN_A_DAY = 10
 MAX_BOTS_TO_SCHEDULE = 100
 MAX_GAMES_TO_SCHEDULE = 100
-RUNNER_URL = "http://localhost:8201/"
-CALLBACK = "http://localhost:8200/game_result"
+RUNNER_URL = os.environ["RUNNER_URL"]
+CALLBACK = os.environ["DISPATCHER_URL"] + "/game_result"
 BUCKET_SIZE = 10
 REQUESTS_PER_MINUTE = 60
+
+
+@app.on_event("startup")
+async def run_games():
+    info("Starting schedule")
+
+    # start games
+    leaky_bucket = LeakyBucket(
+        bucket_size=BUCKET_SIZE, requests_per_minute=REQUESTS_PER_MINUTE
+    )
+
+    for blue, red in schedule_games():
+        # don't match a bot with itself
+        if blue.id == red.id:
+            continue
+
+        async with leaky_bucket.throttle():
+            warning("Starting a game")
+            game = save_new_game(blue, red)
+            task = prep_run_game_task(blue, red, game)
+
+            # submit to a runner
+            try:
+                httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
+            except httpx.ConnectError:
+                warning("Failed to submit to runner at {0}".format(RUNNER_URL))
 
 
 @app.post("/update_code")
 async def update_code(code: Code, request: Request, background: BackgroundTasks):
     # start running games
-    background.add_task(run_once, run_games)
+    # background.add_task(run_once, run_games)
 
     # find the bot
     bot = extract_bot(request)
@@ -62,6 +91,8 @@ async def game_result(result: GameLog, background: BackgroundTasks):
 
 
 async def save_game_result(result: GameLog):
+    info(f"Saving game {result.game_id} result to {RUNNER_URL}")
+
     participants: list[Participant] = (
         db().query(Participant).filter(Participant.game_id == result.game_id).all()
     )
@@ -111,28 +142,6 @@ def bots_with_code():
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
     )
-
-
-async def run_games():
-    info("Starting schedule")
-
-    # start games
-    leaky_bucket = LeakyBucket(
-        bucket_size=BUCKET_SIZE, requests_per_minute=REQUESTS_PER_MINUTE
-    )
-
-    for blue, red in schedule_games():
-        # don't match a bot with itself
-        if blue.id == red.id:
-            continue
-
-        async with leaky_bucket.throttle():
-            warning("Starting a game")
-            game = save_new_game(blue, red)
-            task = prep_run_game_task(blue, red, game)
-
-            # submit to a runner
-            httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
 
 
 def prep_run_game_task(blue: Bot, red: Bot, game: Game) -> RunGameTask:
