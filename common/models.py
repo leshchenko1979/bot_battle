@@ -1,11 +1,11 @@
 import json
 from datetime import datetime, timezone
 
-from botbattle import Side, State
+from botbattle import Code, Side, State
 from sqlalchemy import JSON, Column, DateTime, Integer, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID
 
-from .database import Base
+from .database import Base, db
 
 
 class JSONBoard(TypeDecorator):
@@ -33,6 +33,21 @@ def deep_process_list(what, cls, func):
     ]
 
 
+class CodeVersion(Base):
+    __tablename__ = "code_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    bot_id = Column(Integer)
+    source = Column(String)
+    cls_name = Column(String)
+
+    def __init__(self, bot_id, source, cls_name):
+        self.bot_id = bot_id
+        self.source = source
+        self.cls_name = cls_name
+
+
 class Bot(Base):
     __tablename__ = "bots"
 
@@ -42,15 +57,15 @@ class Bot(Base):
     def __repr__(self):
         return f"<BotModel(id={self.id})>"
 
-
-class CodeVersion(Base):
-    __tablename__ = "code_versions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
-    bot_id = Column(Integer)
-    source = Column(String)
-    cls_name = Column(String)
+    def load_latest_code(self) -> Code:
+        latest_version: CodeVersion = (
+            db()
+            .query(CodeVersion)
+            .filter_by(bot_id=self.id)
+            .order_by(CodeVersion.created_at.desc())
+            .first()
+        )
+        return Code(source=latest_version.source, cls_name=latest_version.cls_name)
 
 
 class Game(Base):
@@ -73,6 +88,12 @@ class StateModel(Base):
     board = Column(JSONBoard)
     next_side = Column(Integer)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
+
+    def __init__(self, game_id, serial_no_within_game, board, next_side):
+        self.game_id = game_id
+        self.serial_no_within_game = serial_no_within_game
+        self.board = board
+        self.next_side = next_side
 
 
 class Participant(Base):

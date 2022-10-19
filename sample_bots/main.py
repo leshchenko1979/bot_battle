@@ -4,8 +4,9 @@ from logging import basicConfig
 
 import uvicorn
 from botbattle import BotClient
-from dispatcher import runner, webserver
-from dispatcher.database import db
+from dispatcher import dispatcher
+from runner import runner
+from scheduler import scheduler
 
 import random_player
 
@@ -13,15 +14,21 @@ basicConfig(level="DEBUG")
 
 
 def main():
-    # db().execute("")
-
     with ThreadPoolExecutor() as executor:
-        for func in [start_webserver, start_clients, start_runner]:
+        for func in [start_dispatcher, start_runner, start_scheduler, start_clients]:
             executor.submit(func)
 
 
-def start_webserver():
-    uvicorn.run(webserver.app, port=8200)
+def start_dispatcher():
+    uvicorn.run(dispatcher.app, port=8200)
+
+
+def start_runner():
+    uvicorn.run(runner.app, port=8201)
+
+
+def start_scheduler():
+    uvicorn.run(scheduler.app, port=8202)
 
 
 def start_clients(no_bots=3):
@@ -44,10 +51,6 @@ def start_clients(no_bots=3):
         bot_client.run()
 
     asyncio.run(run_bots(bot_clients))
-
-
-def start_runner():
-    uvicorn.run(runner.app, port=8201)
 
 
 if __name__ == "__main__":

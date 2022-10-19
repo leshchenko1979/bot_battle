@@ -1,20 +1,9 @@
-import itertools as it
-import os
-import random
-from datetime import datetime, timedelta, timezone
 from logging import basicConfig, getLogger
-from uuid import uuid4
 
-import httpx
-from botbattle import Code, GameLog, RunGameTask, Side
+from botbattle import Code, GameLog, Side
 from common.database import db
 from common.models import Bot, CodeVersion, Game, Participant, StateModel
-from common.utils import LeakyBucket, run_once
 from fastapi import BackgroundTasks, FastAPI, Request
-from icontract import ensure
-from sqlalchemy import or_
-from sqlalchemy.orm import Query
-from sqlalchemy.sql import func
 
 app = FastAPI()
 
@@ -26,61 +15,20 @@ debug = logger.debug
 warning = logger.warning
 
 
-GAMES_IN_A_DAY = 10
-MAX_BOTS_TO_SCHEDULE = 100
-MAX_GAMES_TO_SCHEDULE = 100
-RUNNER_URL = os.environ["RUNNER_URL"]
-CALLBACK = os.environ["DISPATCHER_URL"] + "/game_result"
-BUCKET_SIZE = 10
-REQUESTS_PER_MINUTE = 60
-
-
-@app.on_event("startup")
-async def run_games():
-    info("Starting schedule")
-
-    # start games
-    leaky_bucket = LeakyBucket(
-        bucket_size=BUCKET_SIZE, requests_per_minute=REQUESTS_PER_MINUTE
-    )
-
-    for blue, red in schedule_games():
-        # don't match a bot with itself
-        if blue.id == red.id:
-            continue
-
-        async with leaky_bucket.throttle():
-            warning("Starting a game")
-            game = save_new_game(blue, red)
-            task = prep_run_game_task(blue, red, game)
-
-            # submit to a runner
-            try:
-                httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
-            except httpx.ConnectError:
-                warning("Failed to submit to runner at {0}".format(RUNNER_URL))
-
-
 @app.post("/update_code")
-async def update_code(code: Code, request: Request, background: BackgroundTasks):
-    # start running games
-    # background.add_task(run_once, run_games)
-
+async def update_code(code: Code, request: Request):
     # find the bot
     bot = extract_bot(request)
 
     # load last code version
-    last_version = load_latest_code(bot)
+    last_version = bot.load_latest_code()
 
     # if nothing changed then quit
     if last_version and last_version == code:
         return
 
     # else save new code version
-    new_version = CodeVersion()
-    new_version.bot_id = bot.id
-    new_version.source = code.source
-    new_version.cls_name = code.cls_name
+    new_version = CodeVersion(bot.id, code.source, code.cls_name)
     db().add(new_version)
     db().commit()
 
@@ -91,7 +39,7 @@ async def game_result(result: GameLog, background: BackgroundTasks):
 
 
 async def save_game_result(result: GameLog):
-    info(f"Saving game {result.game_id} result to {RUNNER_URL}")
+    info(f"Saving game {result.game_id} result")
 
     participants: list[Participant] = (
         db().query(Participant).filter(Participant.game_id == result.game_id).all()
@@ -118,11 +66,7 @@ async def save_game_result(result: GameLog):
 
     # save states
     for i, state in enumerate(result.states):
-        state_model = StateModel()
-        state_model.game_id = result.game_id
-        state_model.serial_no_within_game = i
-        state_model.board = state.board
-        state_model.next_side = state.next_side.value
+        state_model = StateModel(result.game_id, i, state.board, state.next_side.value)
         db().add(state_model)
 
     db().commit()
@@ -133,105 +77,3 @@ def extract_bot(request: Request) -> Bot:
     bot: Bot = db().query(Bot).filter_by(token=token).one()
     debug(f"Processing request from bot {bot.id}")
     return bot
-
-
-def bots_with_code():
-    return (
-        db()
-        .query(Bot)
-        .join(CodeVersion, Bot.id == CodeVersion.bot_id)
-        .filter(CodeVersion.id != None)
-    )
-
-
-def prep_run_game_task(blue: Bot, red: Bot, game: Game) -> RunGameTask:
-    # load code
-    blue_code, red_code = (load_latest_code(bot) for bot in (blue, red))
-
-    return RunGameTask(
-        blue_code=blue_code,
-        red_code=red_code,
-        game_id=game.id,
-        callback=CALLBACK,
-    )
-
-
-def save_new_game(blue: Bot, red: Bot) -> Game:
-    # record the game is running
-    game = Game()
-    game.id = uuid4()
-    db().add(game)
-
-    for bot, side in [[blue, Side.BLUE], [red, Side.RED]]:
-        participant = Participant()
-        participant.game_id = game.id
-        participant.bot_id = bot.id
-        participant.side = side.value
-        db().add(participant)
-
-    db().commit()
-
-    return game
-
-
-@ensure(
-    lambda result: all(blue.id != red.id for blue, red in result),
-    "Should not match a bot with itself",
-)
-def schedule_games():
-    # choose bots with least number of games during the last 7 days
-    bots_to_run = bots_with_not_enough_games().all()
-
-    info(f"Found {len(bots_to_run)} bot(s) to schedule")
-
-    # choose opponents for them among all others
-    bots_to_match = (
-        bots_with_code()
-        .filter(Bot.id not in [bot.id for bot in bots_to_run])
-        .limit(len(bots_to_run))
-        .all()
-    )
-
-    info(f"Found {len(bots_to_match)} bot(s) to match")
-
-    if len(bots_to_run) > len(bots_to_match):
-        bots_to_match.extend(
-            random.sample(bots_to_run, len(bots_to_run) - len(bots_to_match))
-        )
-
-    random.shuffle(bots_to_run)
-    random.shuffle(bots_to_match)
-
-    correct_combinations = filter(
-        lambda x: x[0].id != x[1].id, it.product(bots_to_run, bots_to_match)
-    )
-
-    return list(it.islice(it.cycle(correct_combinations), MAX_GAMES_TO_SCHEDULE))
-
-
-def bots_with_not_enough_games() -> Query:
-    return (
-        bots_with_code()
-        .join(Participant, Bot.id == Participant.bot_id, isouter=True)
-        .join(Game, Game.id == Participant.game_id, isouter=True)
-        .filter(
-            or_(
-                Game.id == None,
-                Game.created_at > datetime.now(timezone.utc) - timedelta(days=1),
-            )
-        )
-        .group_by(Bot.id)
-        .having(func.count(Game.id) < GAMES_IN_A_DAY)
-        .limit(MAX_BOTS_TO_SCHEDULE)
-    )
-
-
-def load_latest_code(bot: Bot) -> Code:
-    latest_version: CodeVersion = (
-        db()
-        .query(CodeVersion)
-        .filter_by(bot_id=bot.id)
-        .order_by(CodeVersion.created_at.desc())
-        .first()
-    )
-    return Code(source=latest_version.source, cls_name=latest_version.cls_name)

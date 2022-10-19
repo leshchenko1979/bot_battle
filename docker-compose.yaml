@@ -6,6 +6,7 @@ services:
       - ".env"
     ports:
      - "8200:8200"
+
   runner:
     build:
       dockerfile: runner.Dockerfile
@@ -13,3 +14,11 @@ services:
       - ".env"
     expose:
       - "8201"
+
+  scheduler:
+    build:
+      dockerfile: scheduler.Dockerfile
+    env_file:
+      - ".env"
+    expose:
+      - "8202"
