@@ -1,4 +1,4 @@
 requests
--r ../dispatcher/requirements.txt
+-r ../common/requirements.txt
 beartype
 uvicorn
