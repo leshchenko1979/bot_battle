@@ -55,7 +55,7 @@ class Bot(Base):
     token = Column(String)
 
     def __repr__(self):
-        return f"<BotModel(id={self.id})>"
+        return f"<Bot(id={self.id})>"
 
     def load_latest_code(self) -> Code:
         latest_version: CodeVersion = (
@@ -76,7 +76,7 @@ class Game(Base):
     winner_id = Column(Integer)
 
     def __repr__(self):
-        return f"<GameModel(result={self.result})>"
+        return f"<Game(winner={self.winner_id})>"
 
 
 class StateModel(Base):
