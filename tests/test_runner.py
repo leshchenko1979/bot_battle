@@ -11,11 +11,7 @@ from fastapi import BackgroundTasks
 def test_get_game_results():
     code = make_code(RandomPlayer)
 
-    task = RunGameTask(
-        game_id=uuid4(), callback="https://test.com/", blue_code=code, red_code=code
-    )
-
-    results = get_game_results(task)
+    results = get_game_results(code, code)
 
 async def test_accept_task():
     code = make_code(RandomPlayer)

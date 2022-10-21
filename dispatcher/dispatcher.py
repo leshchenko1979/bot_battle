@@ -29,6 +29,8 @@ async def update_code(code: Code, request: Request):
 
     # else save new code version
     new_version = CodeVersion(bot.id, code.source, code.cls_name)
+    bot.suspended = False
+
     db().add(new_version)
     db().commit()
 
@@ -47,8 +49,24 @@ async def save_game_result(result: GameLog):
 
     assert len(participants) == 2
 
-    # save results for participants
-    if result.winner:
+    if result.exception:
+        game: Game = db().query(Game).filter(Game.id == result.game_id).one()
+        game.exception = result.exception.msg
+
+        if result.exception.caused_by_side == Side(participants[0].side):
+            part_results = ("crashed", "opponent_crashed")
+            perpetrator_idx = 0
+        else:
+            part_results = ("opponent_crashed", "crashed")
+            perpetrator_idx = 1
+
+        # mark the bot that caused the crash as suspended
+        bot: Bot = (
+            db().query(Bot).filter(Bot.id == participants[perpetrator_idx].bot_id).one()
+        )
+        bot.suspended = True
+
+    elif result.winner:
         game: Game = db().query(Game).filter(Game.id == result.game_id).one()
 
         if Side(participants[0].side) == result.winner:
@@ -61,6 +79,7 @@ async def save_game_result(result: GameLog):
     else:
         part_results = ("tie", "tie")
 
+    # save results for participants
     for participant, part_result in zip(participants, part_results):
         participant.result = part_result
 

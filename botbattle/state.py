@@ -1,11 +1,16 @@
 import itertools
 
+import icontract
 from pydantic import BaseModel
 
 from .side import Side
 
 
-class ColumnFullException(Exception):
+class StateException(Exception):
+    pass
+
+
+class ColumnFullException(StateException):
     pass
 
 
@@ -62,6 +67,8 @@ class State(BaseModel):
             if len(population) == 1 and population != {None}:
                 return list(population)[0]
 
+    @icontract.require(lambda col: 0 <= col <= 6, "col out of bounds")
+    @icontract.require(lambda col: isinstance(col, int), "col should be an integer")
     def drop_token(self, col: int, side: Side = None) -> None:
         if self.column_full(col):
             raise ColumnFullException
