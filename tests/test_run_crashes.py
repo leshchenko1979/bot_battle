@@ -35,4 +35,6 @@ async def test_run_crashes(player, expected_exception):
         raise RuntimeError("Should have thrown an exception")
 
     except RunnerException as exc:
+        # print(exc.args)
+        # assert False
         assert isinstance(exc, expected_exception)

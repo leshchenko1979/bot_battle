@@ -105,8 +105,7 @@ def bots_with_not_enough_games() -> Query:
     subq = bots_with_games_for_last_version().subquery("gflv")
 
     return (
-        db()
-        .query(Bot)
+        bots_with_code()
         .join(subq, Bot.id == subq.c.gflv_bot_id, isouter=True)
         .filter(or_(subq.c.gflv_games_count == None, subq.c.gflv_games_count < 10))
         .limit(MAX_BOTS_TO_SCHEDULE)
@@ -133,6 +132,7 @@ def bots_with_games_for_last_version() -> Query:
             > latest_versions.c.latest_version_datetime,  # only games for the last version
         )
         .group_by(Bot.id)
+        .having(Bot.suspended==False)
     )
 
 
@@ -155,6 +155,7 @@ def bots_with_code() -> Query:
         .query(Bot)
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
+        .filter_by(suspended=False)
     )
 
 

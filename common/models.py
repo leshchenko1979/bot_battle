@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from botbattle import Code, Side, State
-from sqlalchemy import JSON, Column, DateTime, Integer, String, TypeDecorator
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID
 
 from .database import Base, db
@@ -53,6 +53,7 @@ class Bot(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     token = Column(String)
+    suspended = Column(Boolean)
 
     def __repr__(self):
         return f"<Bot(id={self.id})>"
@@ -74,6 +75,7 @@ class Game(Base):
     id = Column(UUID(as_uuid=True), primary_key=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     winner_id = Column(Integer)
+    exception = Column(String)
 
     def __repr__(self):
         return f"<Game(winner={self.winner_id})>"

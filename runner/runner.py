@@ -1,13 +1,14 @@
 import threading
 from asyncio import Queue
-from enum import Enum
 from logging import basicConfig, getLogger
 from threading import Thread
+from traceback import format_exc
 
 import httpx
 import reretry
 from botbattle import (
     Code,
+    ExceptionInfo,
     GameLog,
     PlayerAbstract,
     RunGameTask,
@@ -24,11 +25,14 @@ from icontract import ViolationError
 class RunnerException(Exception):
     ...
 
+
 class HangsException(RunnerException):
     ...
 
+
 class InvalidMoveException(RunnerException):
     ...
+
 
 class RaisesException(RunnerException):
     ...
@@ -37,14 +41,16 @@ class RaisesException(RunnerException):
 class MoveBrakesRulesException(RunnerException):
     ...
 
-class RunnerErrorMessage(Enum):
-    HANGS = "Didn't receive a move in alloted time"
-    INVALID_MOVE = "make_move() returned an invalid move"
-    RAISES = "make_move() raised an exception"
-    MOVE_BREAKS_RULES = "Made a move that breaks the rules"
-
 
 MOVE_TIMEOUT = 0.1
+
+ERROR_MESSAGES = {
+    HangsException: f"Didn't receive a move in alloted time ({int(MOVE_TIMEOUT * 1000)}ms)",
+    InvalidMoveException: "make_move() returned an invalid move",
+    RaisesException: "make_move() raised an exception",
+    MoveBrakesRulesException: "Made a move that breaks the rules",
+}
+
 
 app = FastAPI()
 
@@ -69,13 +75,15 @@ async def run_game(task: RunGameTask):
         f"Starting a game between {task.blue_code.cls_name} and {task.red_code.cls_name}"
     )
 
-    states, winners = await get_game_results(task.blue_code, task.red_code)
+    log = GameLog(game_id=task.game_id, states=states)
 
-    log = GameLog(
-        game_id=task.game_id,
-        states=states,
-        winner=winners[0] if len(winners) == 1 else None,
-    )
+    try:
+        states, winners = await get_game_results(task.blue_code, task.red_code)
+        log.winner = winners[0] if len(winners) == 1 else None
+
+    except RunnerException as exc:
+        msg = "\n".join([ERROR_MESSAGES[type(exc)], exc.args[1:]])
+        log.exception = ExceptionInfo(msg=msg, caused_by_side=exc.args[0])
 
     await result_queue.put((task.callback, log))
 
@@ -99,7 +107,7 @@ async def get_game_results(blue_code: Code, red_code: Code):
 
     def handle_exception(*args):
         nonlocal make_move_exc
-        make_move_exc = args
+        make_move_exc = format_exc()
 
     # make moves
     while True:
@@ -116,17 +124,19 @@ async def get_game_results(blue_code: Code, red_code: Code):
         th.join(MOVE_TIMEOUT)
 
         if th.is_alive():
-            raise HangsException
+            raise HangsException(cur_bot.side)
 
         if make_move_exc:
-            raise RaisesException
+            raise RaisesException(cur_bot.side, make_move_exc)
 
         try:
             state.drop_token(move)
-        except ViolationError as exc:
-            raise InvalidMoveException
-        except StateException as exc:
-            raise MoveBrakesRulesException
+
+        except ViolationError:
+            raise InvalidMoveException(cur_bot.side, format_exc())
+
+        except StateException:
+            raise MoveBrakesRulesException(cur_bot.side, format_exc())
 
         # switch to next side
         cur_bot = blue if cur_bot == red else red
