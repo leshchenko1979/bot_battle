@@ -1,11 +1,38 @@
+import threading
 from asyncio import Queue
+from enum import Enum
 from logging import basicConfig, getLogger
+from threading import Thread
 
 import httpx
 import reretry
-from botbattle import GameLog, PlayerAbstract, RunGameTask, Side, State, init_bot
+from botbattle import (
+    Code,
+    GameLog,
+    PlayerAbstract,
+    RunGameTask,
+    Side,
+    State,
+    StateException,
+    init_bot,
+)
 from common.utils import run_once
 from fastapi import BackgroundTasks, FastAPI
+from icontract import ViolationError
+
+
+class RunnerException(Exception):
+    ...
+
+
+class RunnerErrorMessage(Enum):
+    HANGS = "Didn't receive a move in alloted time"
+    INVALID_MOVE = "make_move() returned an invalid move"
+    RAISES = "make_move() raised an exception"
+    MOVE_BREAKS_RULES = "Made a move that breaks the rules"
+
+
+MOVE_TIMEOUT = 0.1
 
 app = FastAPI()
 
@@ -30,7 +57,7 @@ async def run_game(task: RunGameTask):
         f"Starting a game between {task.blue_code.cls_name} and {task.red_code.cls_name}"
     )
 
-    states, winners = get_game_results(task)
+    states, winners = await get_game_results(task.blue_code, task.red_code)
 
     log = GameLog(
         game_id=task.game_id,
@@ -41,17 +68,26 @@ async def run_game(task: RunGameTask):
     await result_queue.put((task.callback, log))
 
 
-def get_game_results(task: RunGameTask):
+async def get_game_results(blue_code: Code, red_code: Code):
     # load code
     blue, red = [
         init_bot(code, side)
-        for code, side in ((task.blue_code, Side.BLUE), (task.red_code, Side.RED))
+        for code, side in ((blue_code, Side.BLUE), (red_code, Side.RED))
     ]
 
     # set initial state
     state = State(next_side=Side.BLUE)
     cur_bot: PlayerAbstract = blue
     states = []
+    move = None
+
+    def make_move():
+        nonlocal move
+        move = cur_bot.make_move(state)
+
+    def handle_exception(*args):
+        nonlocal make_move_exc
+        make_move_exc = args
 
     # make moves
     while True:
@@ -61,9 +97,26 @@ def get_game_results(task: RunGameTask):
         if winners:
             break
 
-        move = cur_bot.make_move(state)
-        state.drop_token(move)
+        make_move_exc = None
+        threading.excepthook = handle_exception
+        th = Thread(target=make_move)
+        th.start()
+        th.join(MOVE_TIMEOUT)
 
+        if th.is_alive():
+            raise RunnerException(RunnerErrorMessage.HANGS.value)
+
+        if make_move_exc:
+            raise RunnerException(RunnerErrorMessage.RAISES.value)
+
+        try:
+            state.drop_token(move)
+        except ViolationError as exc:
+            raise RunnerException(RunnerErrorMessage.INVALID_MOVE.value)
+        except StateException as exc:
+            raise RunnerException(RunnerErrorMessage.MOVE_BREAKS_RULES.value)
+
+        # switch to next side
         cur_bot = blue if cur_bot == red else red
 
     return states, winners
