@@ -24,6 +24,18 @@ from icontract import ViolationError
 class RunnerException(Exception):
     ...
 
+class HangsException(RunnerException):
+    ...
+
+class InvalidMoveException(RunnerException):
+    ...
+
+class RaisesException(RunnerException):
+    ...
+
+
+class MoveBrakesRulesException(RunnerException):
+    ...
 
 class RunnerErrorMessage(Enum):
     HANGS = "Didn't receive a move in alloted time"
@@ -104,17 +116,17 @@ async def get_game_results(blue_code: Code, red_code: Code):
         th.join(MOVE_TIMEOUT)
 
         if th.is_alive():
-            raise RunnerException(RunnerErrorMessage.HANGS.value)
+            raise HangsException
 
         if make_move_exc:
-            raise RunnerException(RunnerErrorMessage.RAISES.value)
+            raise RaisesException
 
         try:
             state.drop_token(move)
         except ViolationError as exc:
-            raise RunnerException(RunnerErrorMessage.INVALID_MOVE.value)
+            raise InvalidMoveException
         except StateException as exc:
-            raise RunnerException(RunnerErrorMessage.MOVE_BREAKS_RULES.value)
+            raise MoveBrakesRulesException
 
         # switch to next side
         cur_bot = blue if cur_bot == red else red
