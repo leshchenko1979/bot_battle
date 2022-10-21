@@ -1,7 +1,5 @@
-import itertools as it
 import os
 import random
-from datetime import datetime, timedelta, timezone
 from logging import basicConfig, getLogger
 from uuid import uuid4
 
@@ -26,7 +24,7 @@ debug = logger.debug
 warning = logger.warning
 
 
-GAMES_IN_A_DAY = 10
+MINIMUM_GAMES_PER_VERSION = 10
 MAX_BOTS_TO_SCHEDULE = 100
 MAX_GAMES_TO_SCHEDULE = 100
 RUNNER_URL = os.environ["RUNNER_URL"]
@@ -61,24 +59,102 @@ async def run_games():
                 warning("Failed to submit to runner at {0}".format(RUNNER_URL))
 
 
-def bots_with_code():
+@ensure(
+    lambda result: all(blue.id != red.id for blue, red in result),
+    "Should not match a bot with itself",
+)
+def schedule_games():
+    # choose bots with least number of games during the last 7 days
+    bots_to_run = bots_with_not_enough_games().all()
+
+    info(f"Found {len(bots_to_run)} bot(s) to schedule")
+
+    bots_to_match = bots_to_run.copy()
+
+    if (
+        len(bots_to_match) < MINIMUM_GAMES_PER_VERSION
+    ):  # first try to match new bots among themselves
+        # choose opponents for them among all others
+        bwneg = bots_with_not_enough_games().subquery()
+
+        bots_to_match.extend(
+            bots_with_code()
+            .join(Participant, Participant.bot_id == Bot.id)
+            .join(bwneg, Bot.id != bwneg.c.id)
+            .group_by(Bot.id)
+            .order_by(func.count(Participant.id).desc())
+            .limit(MINIMUM_GAMES_PER_VERSION - len(bots_to_match))
+            .all()
+        )
+
+    info(f"Found {len(bots_to_match)} bot(s) to match")
+
+    random.shuffle(bots_to_run)
+    random.shuffle(bots_to_match)
+
+    combinations = []
+    for bot in bots_to_run:
+        self_excluded = list(set(bots_to_match) - {bot})
+        matches = random.choices(self_excluded, k=MINIMUM_GAMES_PER_VERSION)
+        combinations.extend([[bot, match] for match in matches])
+
+    return combinations
+
+
+def bots_with_not_enough_games() -> Query:
+    subq = bots_with_games_for_last_version().subquery("gflv")
+
+    return (
+        db()
+        .query(Bot)
+        .join(subq, Bot.id == subq.c.gflv_bot_id, isouter=True)
+        .filter(or_(subq.c.gflv_games_count == None, subq.c.gflv_games_count < 10))
+        .limit(MAX_BOTS_TO_SCHEDULE)
+    )
+
+
+def bots_with_games_for_last_version() -> Query:
+    latest_versions = bots_latest_version_datetime().subquery("latest_versions")
+
+    return (
+        db()
+        .query(
+            Bot.id.label("gflv_bot_id"), func.count(Game.id).label("gflv_games_count")
+        )
+        .join(latest_versions, Bot.id == latest_versions.c.bot_id, isouter=True)
+        .join(
+            Participant,
+            Bot.id == Participant.bot_id,
+            isouter=True,
+        )
+        .join(Game, Game.id == Participant.game_id, isouter=True)
+        .filter(
+            Game.created_at
+            > latest_versions.c.latest_version_datetime,  # only games for the last version
+        )
+        .group_by(Bot.id)
+    )
+
+
+def bots_latest_version_datetime() -> Query:
+    return (
+        db()
+        .query(
+            Bot.id.label("bot_id"),
+            func.max(CodeVersion.created_at).label("latest_version_datetime"),
+        )
+        .join(CodeVersion, Bot.id == CodeVersion.bot_id)
+        .group_by(Bot.id)
+        .having(func.max(CodeVersion.created_at) != None)
+    )
+
+
+def bots_with_code() -> Query:
     return (
         db()
         .query(Bot)
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
-    )
-
-
-def prep_run_game_task(blue: Bot, red: Bot, game: Game) -> RunGameTask:
-    # load code
-    blue_code, red_code = (bot.load_latest_code() for bot in (blue, red))
-
-    return RunGameTask(
-        blue_code=blue_code,
-        red_code=red_code,
-        game_id=game.id,
-        callback=CALLBACK,
     )
 
 
@@ -100,53 +176,10 @@ def save_new_game(blue: Bot, red: Bot) -> Game:
     return game
 
 
-@ensure(
-    lambda result: all(blue.id != red.id for blue, red in result),
-    "Should not match a bot with itself",
-)
-def schedule_games():
-    # choose bots with least number of games during the last 7 days
-    bots_to_run = bots_with_not_enough_games().all()
-
-    info(f"Found {len(bots_to_run)} bot(s) to schedule")
-
-    # choose opponents for them among all others
-    bots_to_match = (
-        bots_with_code()
-        .filter(Bot.id not in [bot.id for bot in bots_to_run])
-        .limit(len(bots_to_run))
-        .all()
-    )
-
-    info(f"Found {len(bots_to_match)} bot(s) to match")
-
-    if len(bots_to_run) > len(bots_to_match):
-        bots_to_match.extend(
-            random.sample(bots_to_run, len(bots_to_run) - len(bots_to_match))
-        )
-
-    random.shuffle(bots_to_run)
-    random.shuffle(bots_to_match)
-
-    correct_combinations = filter(
-        lambda x: x[0].id != x[1].id, it.product(bots_to_run, bots_to_match)
-    )
-
-    return list(it.islice(it.cycle(correct_combinations), MAX_GAMES_TO_SCHEDULE))
-
-
-def bots_with_not_enough_games() -> Query:
-    return (
-        bots_with_code()
-        .join(Participant, Bot.id == Participant.bot_id, isouter=True)
-        .join(Game, Game.id == Participant.game_id, isouter=True)
-        .filter(
-            or_(
-                Game.id == None,
-                Game.created_at > datetime.now(timezone.utc) - timedelta(days=1),
-            )
-        )
-        .group_by(Bot.id)
-        .having(func.count(Game.id) < GAMES_IN_A_DAY)
-        .limit(MAX_BOTS_TO_SCHEDULE)
+def prep_run_game_task(blue: Bot, red: Bot, game: Game) -> RunGameTask:
+    return RunGameTask(
+        blue_code=blue.load_latest_code(),
+        red_code=red.load_latest_code(),
+        game_id=game.id,
+        callback=CALLBACK,
     )
