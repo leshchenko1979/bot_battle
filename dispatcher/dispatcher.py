@@ -96,13 +96,18 @@ async def save_game_result(result: GameLog):
     db().commit()
 
 
-@app.get("/get_part_info/{after}")
+@app.get("/get_part_info/")
 async def get_part_info(
-    after: datetime | None, request: Request
+    after: datetime | None = None, request: Request = None
 ) -> list[ParticipantInfo]:
     bot = extract_bot(request)
 
-    part_query = db().query(Participant).filter(Participant.bot_id == bot.id)
+    part_query = (
+        db()
+        .query(Participant)
+        .filter_by(bot_id=bot.id)
+        .filter(Participant.result != None)
+    )
 
     if after:
         part_query = part_query.filter(Participant.created_at > after)

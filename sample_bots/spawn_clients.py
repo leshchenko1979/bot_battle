@@ -6,7 +6,7 @@ import random_player
 
 from logging import basicConfig
 
-basicConfig(level="DEBUG")
+basicConfig(level="INFO")
 
 # DISPATCHER_URI = "https://dispatcher-q22dvnigiq-uc.a.run.app"
 DISPATCHER_URI = "http://localhost:8200"

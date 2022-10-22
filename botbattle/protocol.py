@@ -32,4 +32,4 @@ class GameLog(BaseModel):
 class ParticipantInfo(BaseModel):
     created_at: datetime
     result: str
-    exception: ExceptionInfo
+    exception: ExceptionInfo | None
