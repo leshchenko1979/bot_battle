@@ -1,8 +1,10 @@
+import time
 from logging import getLogger
 
 import httpx
 
 from .players import make_code
+from .protocol import ParticipantInfo
 
 logger = getLogger(__name__)
 info = logger.info
@@ -49,4 +51,23 @@ class BotClient:
         )
 
     def monitor_logs(self):
-        ...
+        after = False
+        while True:
+            url = "/get_part_info"
+            if after:
+                url += "/{after}"
+            parts: list[ParticipantInfo] = self.get(url).json()
+
+            for part in parts:
+                msg = (
+                    f"{part.result}\n{part.exception}"
+                    if part.exception
+                    else part.result
+                )
+                info(f"{part.created_at.strftime('%Y-%m-%dT%H:%M:')}: {msg}")
+
+                if part.exception:
+                    return
+
+            after = part.created_at
+            time.sleep(3)
