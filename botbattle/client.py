@@ -1,8 +1,10 @@
+import time
 from logging import getLogger
 
 import httpx
 
 from .players import make_code
+from .protocol import ParticipantInfo
 
 logger = getLogger(__name__)
 info = logger.info
@@ -49,4 +51,32 @@ class BotClient:
         )
 
     def monitor_logs(self):
-        ...
+        info("Polling the server for game logs")
+        after = None
+        while True:
+            params = {"after": after} if after else {}
+            parts = [
+                ParticipantInfo(**row)
+                for row in self.get("/get_part_info/", params=params).json()
+            ]
+
+            if parts:
+                for part in parts:
+                    msg = (
+                        f"{part.result}\n{part.exception}"
+                        if part.exception
+                        else part.result
+                    )
+                    info(f"{part.created_at.strftime('%Y-%m-%dT%H:%M:')}: {msg}")
+
+                    if part.exception:
+                        info(
+                            "The last game with this code ended with an exception. "
+                            "The server will stop running games with this bot"
+                            " until a new code version is loaded."
+                        )
+                        return
+
+                after = part.created_at
+
+            time.sleep(3)

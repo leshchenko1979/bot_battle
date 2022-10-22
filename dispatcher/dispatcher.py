@@ -1,6 +1,7 @@
+from datetime import datetime
 from logging import basicConfig, getLogger
 
-from botbattle import Code, GameLog, Side
+from botbattle import Code, GameLog, Side, ParticipantInfo
 from common.database import db
 from common.models import Bot, CodeVersion, Game, Participant, StateModel
 from fastapi import BackgroundTasks, FastAPI, Request
@@ -51,14 +52,18 @@ async def save_game_result(result: GameLog):
 
     if result.exception:
         game: Game = db().query(Game).filter(Game.id == result.game_id).one()
-        game.exception = result.exception.msg
 
         if result.exception.caused_by_side == Side(participants[0].side):
             part_results = ("crashed", "opponent_crashed")
             perpetrator_idx = 0
+
         else:
             part_results = ("opponent_crashed", "crashed")
             perpetrator_idx = 1
+
+        participants[perpetrator_idx].exception = (
+            result.exception.msg + "\n" + str(result.exception.move)
+        )
 
         # mark the bot that caused the crash as suspended
         bot: Bot = (
@@ -89,6 +94,36 @@ async def save_game_result(result: GameLog):
         db().add(state_model)
 
     db().commit()
+
+
+@app.get("/get_part_info/")
+async def get_part_info(
+    after: datetime | None = None, request: Request = None
+) -> list[ParticipantInfo]:
+    bot = extract_bot(request)
+
+    part_query = (
+        db()
+        .query(Participant)
+        .filter_by(bot_id=bot.id)
+        .filter(Participant.result != None)
+    )
+
+    if after:
+        part_query = part_query.filter(Participant.created_at > after)
+
+    participants: list[Participant] = (
+        part_query.order_by(Participant.created_at.desc()).limit(20).all()
+    )
+
+    return [
+        ParticipantInfo(
+            created_at=participant.created_at,
+            result=participant.result,
+            exception=participant.exception,
+        )
+        for participant in reversed(participants)
+    ]
 
 
 def extract_bot(request: Request) -> Bot:

@@ -155,7 +155,7 @@ def bots_with_code() -> Query:
         .query(Bot)
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
-        .filter_by(suspended=False)
+        .filter(Bot.suspended==False)
     )
 
 

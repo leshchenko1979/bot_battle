@@ -1,7 +1,6 @@
 import threading
 from asyncio import Queue
 from logging import basicConfig, getLogger
-from threading import Thread
 from traceback import format_exc
 
 import httpx
@@ -75,20 +74,18 @@ async def run_game(task: RunGameTask):
         f"Starting a game between {task.blue_code.cls_name} and {task.red_code.cls_name}"
     )
 
-    log = GameLog(game_id=task.game_id, states=states)
+    log_dict = await get_game_results(task.blue_code, task.red_code)
 
-    try:
-        states, winners = await get_game_results(task.blue_code, task.red_code)
-        log.winner = winners[0] if len(winners) == 1 else None
-
-    except RunnerException as exc:
-        msg = "\n".join([ERROR_MESSAGES[type(exc)], exc.args[1:]])
-        log.exception = ExceptionInfo(msg=msg, caused_by_side=exc.args[0])
+    log = GameLog(game_id=task.game_id, states=log_dict["states"])
+    if "exception" in log_dict:
+        log.exception = log_dict["exception"]
+    else:
+        log.winner = log_dict["winners"][0] if len(log_dict["winners"]) == 1 else None
 
     await result_queue.put((task.callback, log))
 
 
-async def get_game_results(blue_code: Code, red_code: Code):
+async def get_game_results(blue_code: Code, red_code: Code) -> dict:
     # load code
     blue, red = [
         init_bot(code, side)
@@ -99,7 +96,6 @@ async def get_game_results(blue_code: Code, red_code: Code):
     state = State(next_side=Side.BLUE)
     cur_bot: PlayerAbstract = blue
     states = []
-    move = None
 
     def make_move():
         nonlocal move
@@ -109,6 +105,8 @@ async def get_game_results(blue_code: Code, red_code: Code):
         nonlocal make_move_exc
         make_move_exc = format_exc()
 
+    threading.excepthook = handle_exception
+
     # make moves
     while True:
         states.append(state.copy(deep=True))
@@ -117,31 +115,47 @@ async def get_game_results(blue_code: Code, red_code: Code):
         if winners:
             break
 
+        move = None
+        exc_msg = None
         make_move_exc = None
-        threading.excepthook = handle_exception
-        th = Thread(target=make_move)
+
+        th = threading.Thread(target=make_move)
         th.start()
         th.join(MOVE_TIMEOUT)
 
         if th.is_alive():
-            raise HangsException(cur_bot.side)
+            exc_msg = ERROR_MESSAGES[HangsException]
+            break
 
         if make_move_exc:
-            raise RaisesException(cur_bot.side, make_move_exc)
+            exc_msg = ERROR_MESSAGES[RaisesException] + "\n" + make_move_exc
+            break
 
         try:
             state.drop_token(move)
 
         except ViolationError:
-            raise InvalidMoveException(cur_bot.side, format_exc())
+            exc_msg = ERROR_MESSAGES[InvalidMoveException] + "\n" + format_exc()
+            break
 
         except StateException:
-            raise MoveBrakesRulesException(cur_bot.side, format_exc())
+            exc_msg = ERROR_MESSAGES[MoveBrakesRulesException] + "\n" + format_exc()
+            break
 
         # switch to next side
         cur_bot = blue if cur_bot == red else red
 
-    return states, winners
+    log = {"states": states}
+
+    if exc_msg:
+        log["exception"] = ExceptionInfo(
+            msg=exc_msg, caused_by_side=cur_bot.side, move=move
+        )
+
+    if winners:
+        log["winners"] = winners
+
+    return log
 
 
 async def process_result_queue():
