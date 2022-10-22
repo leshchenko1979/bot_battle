@@ -75,7 +75,6 @@ class Game(Base):
     id = Column(UUID(as_uuid=True), primary_key=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     winner_id = Column(Integer)
-    exception = Column(String)
 
     def __repr__(self):
         return f"<Game(winner={self.winner_id})>"
@@ -102,7 +101,9 @@ class Participant(Base):
     __tablename__ = "participants"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     game_id = Column(UUID(as_uuid=True))
     bot_id = Column(Integer)
     side = Column(Integer)
     result = Column(String)
+    exception = Column(String)
