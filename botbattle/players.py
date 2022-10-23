@@ -20,7 +20,18 @@ class PlayerAbstract(metaclass=ABCMeta):
         ...
 
 
-def make_code(cls: PlayerAbstract) -> Code:
+class IncorrectPlayerCodeException(Exception):
+    ...
+
+
+class IncorrectInheritanceException(IncorrectPlayerCodeException):
+    ...
+
+
+def make_code(cls: PlayerAbstract, skip_checks=False) -> Code:
+    if not skip_checks and not issubclass(cls, PlayerAbstract):
+        raise IncorrectInheritanceException(f"{cls.__name__} should inherit from PlayerAbstract")
+
     return Code(
         source=Path(inspect.getsourcefile(cls)).read_text(), cls_name=cls.__name__
     )

@@ -25,7 +25,7 @@ class RunnerException(Exception):
     ...
 
 
-class HangsException(RunnerException):
+class MoveTookTooLongException(RunnerException):
     ...
 
 
@@ -41,10 +41,20 @@ class MoveBrakesRulesException(RunnerException):
     ...
 
 
+class FailedToInitializeException(RunnerException):
+    ...
+
+
+class InitializationTookTooLongException(RunnerException):
+    ...
+
+
 MOVE_TIMEOUT = 0.1
 
 ERROR_MESSAGES = {
-    HangsException: f"Didn't receive a move in alloted time ({int(MOVE_TIMEOUT * 1000)}ms)",
+    FailedToInitializeException: "Failed to initialize bot due to an exception",
+    InitializationTookTooLongException: f"Failed to initialize bot in alloted time ({int(MOVE_TIMEOUT * 1000)}ms)",
+    MoveTookTooLongException: f"Didn't receive a move in alloted time ({int(MOVE_TIMEOUT * 1000)}ms)",
     InvalidMoveException: "make_move() returned an invalid move",
     RaisesException: "make_move() raised an exception",
     MoveBrakesRulesException: "Made a move that breaks the rules",
@@ -87,10 +97,18 @@ async def run_game(task: RunGameTask):
 
 async def get_game_results(blue_code: Code, red_code: Code) -> dict:
     # load code
-    blue, red = [
-        init_bot(code, side)
-        for code, side in ((blue_code, Side.BLUE), (red_code, Side.RED))
-    ]
+    try:
+        code, side = blue_code, Side.BLUE
+        blue = init_bot_timed(code, side)
+
+        code, side = red_code, Side.RED
+        red = init_bot_timed(code, side)
+
+    except RunnerException as exc:
+        return {
+            "states": [],
+            "exception": ExceptionInfo(msg=exc.args[0], caused_by_side=side),
+        }
 
     # set initial state
     state = State(next_side=Side.BLUE)
@@ -124,7 +142,7 @@ async def get_game_results(blue_code: Code, red_code: Code) -> dict:
         th.join(MOVE_TIMEOUT)
 
         if th.is_alive():
-            exc_msg = ERROR_MESSAGES[HangsException]
+            exc_msg = ERROR_MESSAGES[MoveTookTooLongException]
             break
 
         if make_move_exc:
@@ -156,6 +174,37 @@ async def get_game_results(blue_code: Code, red_code: Code) -> dict:
         log["winners"] = winners
 
     return log
+
+
+def init_bot_timed(code, side):
+    bot = None
+    make_move_exc = None
+
+    def init():
+        nonlocal bot
+        bot = init_bot(code, side)
+
+    def handle_exception(*args):
+        nonlocal make_move_exc
+        make_move_exc = format_exc()
+
+    threading.excepthook = handle_exception
+
+    th = threading.Thread(target=init)
+    th.start()
+    th.join(MOVE_TIMEOUT)
+
+    if th.is_alive():
+        raise InitializationTookTooLongException(
+            ERROR_MESSAGES[InitializationTookTooLongException]
+        )
+
+    if make_move_exc:
+        raise FailedToInitializeException(
+            ERROR_MESSAGES[FailedToInitializeException] + "\n" + make_move_exc
+        )
+
+    return bot
 
 
 async def process_result_queue():

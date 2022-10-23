@@ -3,12 +3,14 @@ from logging import getLogger, basicConfig
 
 import httpx
 
-from .players import make_code
+from .players import make_code, IncorrectInheritanceException
 from .protocol import ParticipantInfo
+
 
 logger = getLogger(__name__)
 info = logger.info
 debug = logger.debug
+error = logger.error
 
 basicConfig(level="INFO")
 
@@ -21,6 +23,8 @@ class BotClient:
         self.bot_cls = bot_cls
 
         self.dispatcher_url = dispatcher_url
+
+        self.code = make_code(self.bot_cls)
 
         self.set_up_http_client()
 
@@ -47,25 +51,35 @@ class BotClient:
 
     def send_code(self):
         info("Sending code to the server")
-        self.post(
-            "/update_code",
-            json=make_code(self.bot_cls).dict(),
-        )
+
+        result = self.post("/update_code", json=self.code.dict())
+        result.raise_for_status()
+
+        if result.json()["updated"]:
+            info("Code updated, new games scheduled")
+        else:
+            info("Code hasn't changed")
 
     def monitor_logs(self):
         info("Polling the server for game logs")
         after = None
+        parts = []
         while True:
             params = {"after": after} if after else {}
             response = self.get("/get_part_info/", params=params)
             response.raise_for_status()
 
+            old_parts = parts
             parts = [ParticipantInfo(**row) for row in response.json()]
+
+            if old_parts == parts:
+                info("No new logs, quitting")
+                return
 
             if parts:
                 for part in parts:
                     msg = (
-                        f"{part.result}\n{part.exception}"
+                        f"{part.result}\n{part.exception.msg}\nThe move was '{part.exception.move}'"
                         if part.exception
                         else part.result
                     )
@@ -81,4 +95,4 @@ class BotClient:
 
                 after = part.created_at
 
-            time.sleep(3)
+            time.sleep(5)

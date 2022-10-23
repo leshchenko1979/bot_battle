@@ -1,5 +1,11 @@
 from .client import BotClient
-from .players import PlayerAbstract, make_code, init_bot
-from .protocol import Code, RunGameTask, GameLog, ExceptionInfo, ParticipantInfo
+from .players import (
+    IncorrectInheritanceException,
+    IncorrectPlayerCodeException,
+    PlayerAbstract,
+    init_bot,
+    make_code,
+)
+from .protocol import Code, ExceptionInfo, GameLog, ParticipantInfo, RunGameTask
 from .side import Side
 from .state import State, StateException
