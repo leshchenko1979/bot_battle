@@ -1,7 +1,9 @@
+import os
 from datetime import datetime
 from logging import basicConfig, getLogger
 
-from botbattle import Code, GameLog, Side, ParticipantInfo
+import httpx
+from botbattle import Code, GameLog, ParticipantInfo, Side, ExceptionInfo
 from common.database import db
 from common.models import Bot, CodeVersion, Game, Participant, StateModel
 from fastapi import BackgroundTasks, FastAPI, Request
@@ -17,7 +19,9 @@ warning = logger.warning
 
 
 @app.post("/update_code")
-async def update_code(code: Code, request: Request):
+async def update_code(code: Code, request: Request) -> dict:
+    db().rollback()  # in case of failed transactions
+
     # find the bot
     bot = extract_bot(request)
 
@@ -26,7 +30,7 @@ async def update_code(code: Code, request: Request):
 
     # if nothing changed then quit
     if last_version and last_version == code:
-        return
+        return {"updated": False}
 
     # else save new code version
     new_version = CodeVersion(bot.id, code.source, code.cls_name)
@@ -34,6 +38,10 @@ async def update_code(code: Code, request: Request):
 
     db().add(new_version)
     db().commit()
+
+    httpx.post(os.environ["SCHEDULER_URL"])
+
+    return {"updated": True}
 
 
 @app.post("/game_result")
@@ -61,9 +69,7 @@ async def save_game_result(result: GameLog):
             part_results = ("opponent_crashed", "crashed")
             perpetrator_idx = 1
 
-        participants[perpetrator_idx].exception = (
-            result.exception.msg + "\n" + str(result.exception.move)
-        )
+        participants[perpetrator_idx].exception = result.exception.json()
 
         # mark the bot that caused the crash as suspended
         bot: Bot = (
@@ -100,6 +106,8 @@ async def save_game_result(result: GameLog):
 async def get_part_info(
     after: datetime | None = None, request: Request = None
 ) -> list[ParticipantInfo]:
+    db().rollback()
+
     bot = extract_bot(request)
 
     part_query = (
@@ -120,7 +128,7 @@ async def get_part_info(
         ParticipantInfo(
             created_at=participant.created_at,
             result=participant.result,
-            exception=participant.exception,
+            exception=ExceptionInfo.parse_raw(participant.exception),
         )
         for participant in reversed(participants)
     ]

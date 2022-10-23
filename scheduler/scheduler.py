@@ -8,7 +8,7 @@ from botbattle import RunGameTask, Side
 from common.database import db
 from common.models import Bot, CodeVersion, Game, Participant
 from common.utils import LeakyBucket
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from icontract import ensure
 from sqlalchemy import or_
 from sqlalchemy.orm import Query
@@ -27,14 +27,28 @@ warning = logger.warning
 MINIMUM_GAMES_PER_VERSION = 10
 MAX_BOTS_TO_SCHEDULE = 100
 MAX_GAMES_TO_SCHEDULE = 100
+
 RUNNER_URL = os.environ["RUNNER_URL"]
 CALLBACK = os.environ["DISPATCHER_URL"] + "/game_result"
+
 BUCKET_SIZE = 10
 REQUESTS_PER_MINUTE = 60
 
 
+done = False
+
+
 @app.on_event("startup")
 async def run_games():
+    # in case several schedules have been requested in a row
+    # while the previous was still running
+    global done
+    if done:
+        return
+
+    # clear requests for more game scheduling
+    done = True
+
     info("Starting schedule")
 
     # start games
@@ -48,7 +62,7 @@ async def run_games():
             continue
 
         async with leaky_bucket.throttle():
-            warning("Starting a game")
+            info("Starting a game")
             game = save_new_game(blue, red)
             task = prep_run_game_task(blue, red, game)
 
@@ -56,7 +70,15 @@ async def run_games():
             try:
                 httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
             except httpx.ConnectError:
-                warning("Failed to submit to runner at {0}".format(RUNNER_URL))
+                warning(f"Failed to submit to runner at {RUNNER_URL}")
+
+
+@app.post("/")
+def scheduling_requested(background: BackgroundTasks):
+    global done
+    done = False
+    info("Scheduling requested")
+    background.add_task(run_games)
 
 
 @ensure(
@@ -132,7 +154,7 @@ def bots_with_games_for_last_version() -> Query:
             > latest_versions.c.latest_version_datetime,  # only games for the last version
         )
         .group_by(Bot.id)
-        .having(Bot.suspended==False)
+        .having(Bot.suspended == False)
     )
 
 
@@ -155,7 +177,7 @@ def bots_with_code() -> Query:
         .query(Bot)
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
-        .filter(Bot.suspended==False)
+        .filter(Bot.suspended == False)
     )
 
 
