@@ -1,5 +1,5 @@
 import time
-from logging import getLogger
+from logging import getLogger, basicConfig
 
 import httpx
 
@@ -10,10 +10,12 @@ logger = getLogger(__name__)
 info = logger.info
 debug = logger.debug
 
+basicConfig(level="INFO")
+
 
 class BotClient:
     def __init__(self, token: str, bot_cls, dispatcher_url):
-        info(f"Initializing BotClient with token: {token}")
+        debug(f"Initializing BotClient with token: {token}")
 
         self.bot_token = token
         self.bot_cls = bot_cls
@@ -25,7 +27,7 @@ class BotClient:
         info("Initialization complete")
 
     def set_up_http_client(self):
-        info("Setting up HTTP client")
+        debug("Setting up HTTP client")
         headers = {"Authorization": f"Bearer {self.bot_token}"}
         self.http_client = httpx.Client(base_url=self.dispatcher_url, headers=headers)
 
@@ -55,10 +57,10 @@ class BotClient:
         after = None
         while True:
             params = {"after": after} if after else {}
-            parts = [
-                ParticipantInfo(**row)
-                for row in self.get("/get_part_info/", params=params).json()
-            ]
+            response = self.get("/get_part_info/", params=params)
+            response.raise_for_status()
+
+            parts = [ParticipantInfo(**row) for row in response.json()]
 
             if parts:
                 for part in parts:
@@ -67,7 +69,7 @@ class BotClient:
                         if part.exception
                         else part.result
                     )
-                    info(f"{part.created_at.strftime('%Y-%m-%dT%H:%M:')}: {msg}")
+                    info(f"{part.created_at.strftime('%Y-%m-%dT%H:%M')}: {msg}")
 
                     if part.exception:
                         info(
