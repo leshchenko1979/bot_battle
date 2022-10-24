@@ -5,13 +5,13 @@ from uuid import uuid4
 
 import httpx
 from botbattle import RunGameTask, Side
-from common.database import db
+from common.database import SessionLocal
 from common.models import Bot, CodeVersion, Game, Participant
 from common.utils import LeakyBucket
 from fastapi import FastAPI, BackgroundTasks
 from icontract import ensure
 from sqlalchemy import or_
-from sqlalchemy.orm import Query
+from sqlalchemy.orm import Query, Session
 from sqlalchemy.sql import func
 
 app = FastAPI()
@@ -56,21 +56,19 @@ async def run_games():
         bucket_size=BUCKET_SIZE, requests_per_minute=REQUESTS_PER_MINUTE
     )
 
-    for blue, red in schedule_games():
-        # don't match a bot with itself
-        if blue.id == red.id:
-            continue
+    with SessionLocal() as db:
+        for blue, red in schedule_games(db):
+            async with leaky_bucket.throttle():
+                info("Starting a game")
+                game = save_new_game(blue, red, db)
+                db.commit()
 
-        async with leaky_bucket.throttle():
-            info("Starting a game")
-            game = save_new_game(blue, red)
-            task = prep_run_game_task(blue, red, game)
-
-            # submit to a runner
-            try:
-                httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
-            except httpx.ConnectError:
-                warning(f"Failed to submit to runner at {RUNNER_URL}")
+                # submit to a runner
+                task = prep_run_game_task(blue, red, game, db)
+                try:
+                    httpx.post(RUNNER_URL, content=task.json().encode("utf-8"))
+                except httpx.ConnectError:
+                    warning(f"Failed to submit to runner at {RUNNER_URL}")
 
 
 @app.post("/")
@@ -85,9 +83,9 @@ def scheduling_requested(background: BackgroundTasks):
     lambda result: all(blue.id != red.id for blue, red in result),
     "Should not match a bot with itself",
 )
-def schedule_games():
+def schedule_games(db: Session) -> list[tuple[Bot, Bot]]:
     # choose bots with least number of games during the last 7 days
-    bots_to_run = bots_with_not_enough_games().all()
+    bots_to_run = bots_with_not_enough_games(db).all()
 
     info(f"Found {len(bots_to_run)} bot(s) to schedule")
 
@@ -97,10 +95,10 @@ def schedule_games():
         len(bots_to_match) < MINIMUM_GAMES_PER_VERSION
     ):  # first try to match new bots among themselves
         # choose opponents for them among all others
-        bwneg = bots_with_not_enough_games().subquery()
+        bwneg = bots_with_not_enough_games(db).subquery()
 
         bots_to_match.extend(
-            bots_with_code()
+            bots_with_code(db)
             .join(Participant, Participant.bot_id == Bot.id)
             .join(bwneg, Bot.id != bwneg.c.id)
             .group_by(Bot.id)
@@ -123,23 +121,22 @@ def schedule_games():
     return combinations
 
 
-def bots_with_not_enough_games() -> Query:
-    subq = bots_with_games_for_last_version().subquery("gflv")
+def bots_with_not_enough_games(db: Session) -> Query:
+    subq = bots_with_games_for_last_version(db).subquery("gflv")
 
     return (
-        bots_with_code()
+        bots_with_code(db)
         .join(subq, Bot.id == subq.c.gflv_bot_id, isouter=True)
         .filter(or_(subq.c.gflv_games_count == None, subq.c.gflv_games_count < 10))
         .limit(MAX_BOTS_TO_SCHEDULE)
     )
 
 
-def bots_with_games_for_last_version() -> Query:
-    latest_versions = bots_latest_version_datetime().subquery("latest_versions")
+def bots_with_games_for_last_version(db: Session) -> Query:
+    latest_versions = bots_latest_version_datetime(db).subquery("latest_versions")
 
     return (
-        db()
-        .query(
+        db.query(
             Bot.id.label("gflv_bot_id"), func.count(Game.id).label("gflv_games_count")
         )
         .join(latest_versions, Bot.id == latest_versions.c.bot_id, isouter=True)
@@ -158,10 +155,9 @@ def bots_with_games_for_last_version() -> Query:
     )
 
 
-def bots_latest_version_datetime() -> Query:
+def bots_latest_version_datetime(db: Session) -> Query:
     return (
-        db()
-        .query(
+        db.query(
             Bot.id.label("bot_id"),
             func.max(CodeVersion.created_at).label("latest_version_datetime"),
         )
@@ -171,38 +167,35 @@ def bots_latest_version_datetime() -> Query:
     )
 
 
-def bots_with_code() -> Query:
+def bots_with_code(db: Session) -> Query:
     return (
-        db()
-        .query(Bot)
+        db.query(Bot)
         .join(CodeVersion, Bot.id == CodeVersion.bot_id)
         .filter(CodeVersion.id != None)
         .filter(Bot.suspended == False)
     )
 
 
-def save_new_game(blue: Bot, red: Bot) -> Game:
+def save_new_game(blue: Bot, red: Bot, db: Session) -> Game:
     # record the game is running
     game = Game()
     game.id = uuid4()
-    db().add(game)
+    db.add(game)
 
     for bot, side in [[blue, Side.BLUE], [red, Side.RED]]:
         participant = Participant()
         participant.game_id = game.id
         participant.bot_id = bot.id
         participant.side = side.value
-        db().add(participant)
-
-    db().commit()
+        db.add(participant)
 
     return game
 
 
-def prep_run_game_task(blue: Bot, red: Bot, game: Game) -> RunGameTask:
+def prep_run_game_task(blue: Bot, red: Bot, game: Game, db: Session) -> RunGameTask:
     return RunGameTask(
-        blue_code=blue.load_latest_code(),
-        red_code=red.load_latest_code(),
+        blue_code=blue.load_latest_code(db),
+        red_code=red.load_latest_code(db),
         game_id=game.id,
         callback=CALLBACK,
     )

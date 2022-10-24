@@ -1,16 +1,13 @@
+import logging
 import os
-from functools import lru_cache
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.log import InstanceLogger
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
 Base = declarative_base()
 
 database_uri = os.environ["DATABASE_URI"]
-
-
-from sqlalchemy.log import InstanceLogger
-import logging
 
 
 def pretty_log(self, level, msg, *args, **kwargs):
@@ -33,9 +30,6 @@ def pretty_log(self, level, msg, *args, **kwargs):
 InstanceLogger.log = pretty_log
 
 
-@lru_cache
-def db():
-    engine = create_engine(database_uri)
-    engine.echo = False
-    Session = sessionmaker(bind=engine)
-    return Session()
+engine = create_engine(database_uri)
+engine.echo = False
+SessionLocal: Session = sessionmaker(bind=engine)
