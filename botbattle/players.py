@@ -1,6 +1,5 @@
 import inspect
 from abc import ABCMeta, abstractmethod
-from pathlib import Path
 
 from .protocol import Code
 from .side import Side
@@ -30,11 +29,11 @@ class IncorrectInheritanceException(IncorrectPlayerCodeException):
 
 def make_code(cls: PlayerAbstract, skip_checks=False) -> Code:
     if not skip_checks and not issubclass(cls, PlayerAbstract):
-        raise IncorrectInheritanceException(f"{cls.__name__} should inherit from PlayerAbstract")
+        raise IncorrectInheritanceException(
+            f"{cls.__name__} should inherit from PlayerAbstract"
+        )
 
-    return Code(
-        source=Path(inspect.getsourcefile(cls)).read_text(), cls_name=cls.__name__
-    )
+    return Code(source=inspect.getsource(cls), cls_name=cls.__name__)
 
 
 def init_bot(code: Code, side: Side) -> PlayerAbstract:
