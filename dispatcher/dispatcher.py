@@ -97,7 +97,7 @@ async def save_game_result(result: GameLog):
             state_model = StateModel(
                 result.game_id, i, state.board, state.next_side.value
             )
-            db().add(state_model)
+            db.add(state_model)
 
 
 @app.get("/get_part_info/")
@@ -116,17 +116,17 @@ async def get_part_info(
         if after:
             part_query = part_query.filter(Participant.created_at > after)
 
-        participants: list[Participant] = (
-            part_query.order_by(Participant.created_at.desc()).limit(20).all()
-        )
+        part_query = part_query.order_by(Participant.created_at.desc()).limit(20)
+
+        participants: list[Participant] = part_query.all()
 
         return [
             ParticipantInfo(
-                created_at=participant.created_at,
-                result=participant.result,
-                exception=ExceptionInfo.parse_raw(participant.exception),
+                created_at=part.created_at,
+                result=part.result,
+                exception=ExceptionInfo.parse_raw(part.exception),
             )
-            for participant in reversed(participants)
+            for part in reversed(participants)
         ]
 
 
