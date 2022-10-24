@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from botbattle import Code, Side, State
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, TypeDecorator
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Session
 
-from .database import Base, db
+from .database import Base
 
 
 class JSONBoard(TypeDecorator):
@@ -58,10 +59,9 @@ class Bot(Base):
     def __repr__(self):
         return f"<Bot(id={self.id})>"
 
-    def load_latest_code(self) -> Code:
+    def load_latest_code(self, db: Session) -> Code:
         latest_version: CodeVersion = (
-            db()
-            .query(CodeVersion)
+            db.query(CodeVersion)
             .filter_by(bot_id=self.id)
             .order_by(CodeVersion.created_at.desc())
             .first()
