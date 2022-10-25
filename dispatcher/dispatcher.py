@@ -1,9 +1,18 @@
+import collections
 import os
 from datetime import datetime
 from logging import basicConfig, getLogger
 
 import httpx
-from botbattle import Code, GameLog, ParticipantInfo, Side, ExceptionInfo
+from botbattle import (
+    Code,
+    ExceptionInfo,
+    GameLog,
+    ParticipantInfo,
+    Side,
+    VersionInfo,
+    VersionStats,
+)
 from common.database import SessionLocal
 from common.models import Bot, CodeVersion, Game, Participant, StateModel
 from fastapi import BackgroundTasks, FastAPI, Request
@@ -128,6 +137,63 @@ async def get_part_info(
             )
             for part in reversed(participants)
         ]
+
+
+@app.get("/latest_versions_info/")
+async def get_part_info(request: Request = None) -> list[VersionInfo]:
+    with SessionLocal.begin() as db:
+        db: Session = db  # to allow IDE type hinting
+
+        bot = extract_bot(request, db)
+
+        # get the latest versions
+        query = (
+            db.query(CodeVersion)
+            .filter_by(bot_id=bot.id)
+            .order_by(CodeVersion.created_at.desc())  # recent first
+            .limit(20)
+        )
+
+        versions: list[CodeVersion] = list(reversed(query.all()))  # recent last
+        results: list[VersionInfo] = []
+
+        # for each version
+        for version, next_version in zip(versions, [*versions[1:], None]):
+            entry = VersionInfo(
+                created_at=version.created_at, loc=str(version.source).count("\n")
+            )
+
+            # find all games
+            query = (
+                db.query(Participant)
+                .filter_by(bot_id=bot.id)
+                .filter(version.created_at < Participant.created_at)
+            )
+
+            if next_version:
+                query = query.filter(Participant.created_at < next_version.created_at)
+
+            parts: list[ParticipantInfo] = query.all()
+
+            # check if crashed
+            exc = [part.exception for part in parts if part.exception]
+            if exc:
+                entry.exception = ExceptionInfo.parse_raw(exc[-1])
+
+            # else calc stats
+            else:
+                counts = collections.Counter(
+                    part.result for part in parts if part.result
+                )
+                entry.stats = VersionStats(
+                    victories=counts.get("victory", 0),
+                    losses=counts.get("loss", 0),
+                    ties=counts.get("tie", 0),
+                )
+
+            results.append(entry)
+
+    return results
 
 
 def extract_bot(request: Request, db: Session) -> Bot:

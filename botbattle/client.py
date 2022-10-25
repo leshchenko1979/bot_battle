@@ -1,11 +1,9 @@
-import time
-from logging import getLogger, basicConfig
+from logging import basicConfig, getLogger
 
 import httpx
 
-from .players import make_code, IncorrectInheritanceException
-from .protocol import ParticipantInfo
-
+from .players import make_code
+from .protocol import VersionInfo
 
 logger = getLogger(__name__)
 info = logger.info
@@ -43,11 +41,8 @@ class BotClient:
 
     def run(self):
         info("Running")
-        try:
-            self.send_code()
-            self.monitor_logs()
-        except KeyboardInterrupt:
-            info("Interrupted by user")
+        self.send_code()
+        self.get_latest_versions_info()
 
     def send_code(self):
         info("Sending code to the server")
@@ -60,39 +55,36 @@ class BotClient:
         else:
             info("Code hasn't changed")
 
-    def monitor_logs(self):
-        info("Polling the server for game logs")
-        after = None
-        parts = []
-        while True:
-            params = {"after": after} if after else {}
-            response = self.get("/get_part_info/", params=params)
-            response.raise_for_status()
+    def get_latest_versions_info(self):
+        info("Listing latest versions")
 
-            old_parts = parts
-            parts = [ParticipantInfo(**row) for row in response.json()]
+        response = self.get("/latest_versions_info/")
+        response.raise_for_status()
 
-            if old_parts == parts:
-                info("No new logs, quitting")
-                return
+        versions = [VersionInfo(**row) for row in response.json()]
 
-            if parts:
-                for part in parts:
-                    msg = (
-                        f"{part.result}\n{part.exception.msg}\nThe move was '{part.exception.move}'"
-                        if part.exception
-                        else part.result
+        for version in versions:
+            beginning = f"{version.created_at.strftime('%Y-%m-%d %H:%M:%S')}, {version.loc:3} loc:"
+
+            if version.exception:
+                content = "crashed"
+            else:
+                stats = version.stats
+                total = stats.victories + stats.losses + stats.ties
+                if total:
+                    content = (
+                        f"wins={stats.victories:3}({stats.victories/total:3.0%}), "
+                        f"losses={stats.losses:3}({stats.losses/total:3.0%}), "
+                        f"ties={stats.ties:3}({stats.ties/total:3.0%})"
                     )
-                    info(f"{part.created_at.strftime('%Y-%m-%dT%H:%M')}: {msg}")
+                else:
+                    content = "no games played"
 
-                    if part.exception:
-                        info(
-                            "The last game with this code ended with an exception. "
-                            "The server will stop running games with this bot"
-                            " until a new code version is loaded."
-                        )
-                        return
+            info(f"{beginning}: {content}")
 
-                after = part.created_at
-
-            time.sleep(5)
+        if versions[-1].exception:
+            info(
+                f"The latest version raised an exception:\n"
+                f"{versions[-1].exception.msg}\n"
+                f"The move was '{versions[-1].exception.move}'"
+            )

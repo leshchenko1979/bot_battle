@@ -23,13 +23,28 @@ class ExceptionInfo(BaseModel):
     caused_by_side: Side
     move: Any
 
+
 class GameLog(BaseModel):
     game_id: UUID4
     states: list[State]
     winner: Side | None
     exception: ExceptionInfo | None
 
+
 class ParticipantInfo(BaseModel):
     created_at: datetime
     result: str
     exception: ExceptionInfo | None
+
+
+class VersionStats(BaseModel):
+    victories: int
+    losses: int
+    ties: int
+
+
+class VersionInfo(BaseModel):
+    created_at: datetime
+    loc: int
+    exception: ExceptionInfo | None
+    stats: VersionStats | None
