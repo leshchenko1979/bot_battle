@@ -1,8 +1,7 @@
 import json
-from datetime import datetime, timezone
 
-from botbattle import Code, Side, State
-from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, TypeDecorator
+from botbattle import Code, Side
+from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String, TypeDecorator, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Session
 
@@ -38,7 +37,7 @@ class CodeVersion(Base):
     __tablename__ = "code_versions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=func.now())
     bot_id = Column(Integer)
     source = Column(String)
     cls_name = Column(String)
@@ -73,7 +72,7 @@ class Game(Base):
     __tablename__ = "games"
 
     id = Column(UUID(as_uuid=True), primary_key=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=func.now())
     winner_id = Column(Integer)
 
     def __repr__(self):
@@ -88,7 +87,7 @@ class StateModel(Base):
     serial_no_within_game = Column(Integer)
     board = Column(JSONBoard)
     next_side = Column(Integer)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=func.now())
 
     def __init__(self, game_id, serial_no_within_game, board, next_side):
         self.game_id = game_id
@@ -101,7 +100,7 @@ class Participant(Base):
     __tablename__ = "participants"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=func.now())
     game_id = Column(UUID(as_uuid=True))
     bot_id = Column(Integer)
     side = Column(Integer)
