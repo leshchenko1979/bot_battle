@@ -6,6 +6,14 @@ from .players import (
     init_bot,
     make_code,
 )
-from .protocol import Code, ExceptionInfo, GameLog, ParticipantInfo, RunGameTask, VersionInfo, VersionStats
+from .protocol import (
+    Code,
+    ExceptionInfo,
+    GameLog,
+    ParticipantInfo,
+    RunGameTask,
+    VersionInfo,
+    VersionStats,
+)
 from .side import Side
-from .state import State, StateException
+from .state import State, StateException, Vector
