@@ -5,3 +5,4 @@ uvicorn
 sqlparse
 icontract
 reretry
+better_exceptions
