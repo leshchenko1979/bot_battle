@@ -17,6 +17,7 @@ from runner.runner import (
 
 class Hangs(PlayerAbstract):
     def make_move(self, board):
+        import time
         time.sleep(0.2)
 
 
@@ -41,6 +42,7 @@ class InitFails(PlayerAbstract):
 
 class InitHangs(PlayerAbstract):
     def __init__(self, side):
+        import time
         time.sleep(0.2)
 
     def make_move(self, board):
